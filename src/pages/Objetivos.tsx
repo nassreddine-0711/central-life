@@ -711,15 +711,16 @@ export default function Objetivos() {
     return sides;
   }, [goals]);
 
-  // Generador de la Línea Temporal
+  // Generador de la Línea Temporal (Solo Sueños y Objetivos)
   const timelineItems = useMemo(() => {
     if (!config.birthDate) return [];
     const birth = new Date(config.birthDate);
     const items: any[] = [];
     
-    items.push({ id: "birth", type: "birth", dateObj: birth, title: "Día Cero", age: 0, year: birth.getFullYear(), color: "#888888", icon: Mountain, side: "right" });
+    // Filtrar objetivos para dejar solo sueños y objetivos tácticos (excluyendo hitos)
+    const filteredGoals = goals.filter(g => g.level === "dream" || g.level === "objective");
 
-    goals.forEach(g => {
+    filteredGoals.forEach(g => {
       const d = new Date(g.deadline);
       let age = d.getFullYear() - birth.getFullYear();
       if (d.getMonth() < birth.getMonth() || (d.getMonth() === birth.getMonth() && d.getDate() < birth.getDate())) age--;
@@ -739,8 +740,14 @@ export default function Objetivos() {
       }
       color = color || "hsl(var(--primary))";
       items.push({ 
-        ...g, dateObj: d, age, year: d.getFullYear(), color, parentTitle: pTitle, 
-        icon: g.level === "dream" ? Mountain : g.level === "objective" ? Flag : Check,
+        ...g, 
+        type: g.level, // Mapeado del tipo explícito para activar correctamente las clases de tamaño CSS
+        dateObj: d, 
+        age, 
+        year: d.getFullYear(), 
+        color, 
+        parentTitle: pTitle, 
+        icon: g.level === "dream" ? Mountain : Flag,
         side: timelineSides[g.id] || "right"
       });
     });
@@ -760,7 +767,7 @@ export default function Objetivos() {
       let maxR = centerLineX;
       let minL = centerLineX;
 
-      document.querySelectorAll('.timeline-card').forEach(el => {
+      timelineRef.current.querySelectorAll('.timeline-card').forEach(el => {
          const r = el.getBoundingClientRect();
          const isCardRight = isMobile ? true : r.left > centerLineX - 50;
          if (isCardRight) {
@@ -810,7 +817,6 @@ export default function Objetivos() {
     updateArrows();
     const observer = new ResizeObserver(updateArrows);
     if (timelineRef.current) observer.observe(timelineRef.current);
-    // Refresh if window resizes explicitly just to be safe
     window.addEventListener('resize', updateArrows);
     return () => {
       observer.disconnect();
@@ -889,7 +895,6 @@ export default function Objetivos() {
             {!config.birthDate ? (
               <Empty label="Configura tu destino y fecha de nacimiento para generar la Línea Temporal." actionLabel="Configurar" onAction={() => setShowConfig(true)} />
             ) : (
-              // Contenedor expandido para no ocultar las líneas exteriores
               <div className="relative mx-auto w-full max-w-[1200px] px-2 sm:px-10 md:px-24 py-10" ref={timelineRef}>
                 
                 {/* SVG Overlay para dibujar las flechas a 90 grados por fuera */}
@@ -908,21 +913,21 @@ export default function Objetivos() {
 
                 {timelineItems.map((item) => {
                   const isLeft = item.side === "left";
-                  const typeLabel = item.type === "dream" ? "SUEÑO" : item.type === "objective" ? "OBJETIVO" : item.type === "milestone" ? "HITO" : "ORIGEN";
+                  const typeLabel = item.type === "dream" ? "SUEÑO" : "OBJETIVO";
 
-                  // Lógica de TAMAÑOS: Grandes(Sueño), Medianos(Objetivos), Pequeños(Hitos)
-                  let maxWidthClass = "max-w-sm";
+                  // Lógica de TAMAÑOS jerárquica clara para Sueño vs Objetivo
+                  let maxWidthClass = "max-w-md w-full";
                   let paddingClass = "p-4 sm:p-5";
                   let titleSize = "text-sm sm:text-base";
 
                   if (item.type === "dream") {
-                    maxWidthClass = "max-w-2xl"; // Muy Grande
-                    paddingClass = "p-6 sm:p-8";
-                    titleSize = "text-xl sm:text-2xl";
+                    maxWidthClass = "max-w-2xl w-full"; 
+                    paddingClass = "p-6 sm:p-8 bg-gradient-to-br from-card via-card to-background/30";
+                    titleSize = "text-xl sm:text-2xl font-extrabold tracking-tight text-foreground";
                   } else if (item.type === "objective") {
-                    maxWidthClass = "max-w-md"; // Mediano
-                    paddingClass = "p-5 sm:p-6";
-                    titleSize = "text-base sm:text-xl";
+                    maxWidthClass = "max-w-sm w-full"; // Tarjeta de objetivos sustancialmente menos ancha
+                    paddingClass = "p-4 sm:p-5";
+                    titleSize = "text-base sm:text-lg font-bold text-foreground/90";
                   }
 
                   const isExpanded = expandedTimelineId === item.id;
@@ -939,19 +944,40 @@ export default function Objetivos() {
 
                       {/* Tarjeta Wrapper */}
                       <div className={cn("w-full pl-20 md:w-1/2 flex", isLeft ? "md:pl-0 md:pr-14 md:justify-end text-left md:text-right" : "md:pl-14 justify-start text-left")}>
-                        <div 
+                        <motion.div 
                           id={`tcard-${item.id}`}
                           className={cn(
-                            "timeline-card inline-block rounded-2xl border bg-card/90 shadow-md backdrop-blur-md transition-all hover:shadow-lg hover:-translate-y-1 cursor-pointer w-full", 
+                            "timeline-card inline-block rounded-2xl bg-card/90 backdrop-blur-md cursor-pointer w-full transition-colors", 
                             maxWidthClass, 
                             paddingClass
                           )}
-                          style={{ borderLeftColor: item.color, borderLeftWidth: "6px" }}
+                          style={{ 
+                            // Ambos tipos de tarjetas usan ahora el color seleccionado perimetralmente
+                            borderWidth: item.type === "dream" ? "4px" : "1px",
+                            borderColor: item.color,
+                            borderStyle: "solid",
+                            boxShadow: item.type === "dream"
+                              ? `0 12px 35px -10px ${item.color}40, 0 0 15px -4px ${item.color}25`
+                              : "0 4px 15px -3px rgba(0, 0, 0, 0.05)"
+                          }}
+                          whileHover={item.type === "dream" ? {
+                            y: -6,
+                            boxShadow: `0 25px 50px -12px ${item.color}70, 0 0 30px 2px ${item.color}40`,
+                            borderColor: item.color
+                          } : {
+                            y: -4,
+                            boxShadow: "0 12px 24px -6px rgba(0, 0, 0, 0.12)",
+                            borderColor: item.color // Conserva su propio color delimitado al hacer hover
+                          }}
+                          transition={{ duration: 0.25, ease: "easeInOut" }}
                           onClick={() => setExpandedTimelineId(isExpanded ? null : item.id)}
                         >
                           <div className={cn("flex flex-wrap items-center gap-2 mb-4", isLeft ? "md:justify-end" : "justify-start")}>
                             <span 
-                              className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest shadow-sm" 
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest shadow-sm",
+                                item.type === "dream" ? "animate-pulse" : ""
+                              )} 
                               style={{ backgroundColor: `${item.color}15`, borderColor: `${item.color}50`, color: item.color }}
                             >
                               <item.icon className="h-3.5 w-3.5" /> {typeLabel}
@@ -976,7 +1002,7 @@ export default function Objetivos() {
                               </motion.div>
                             )}
                           </AnimatePresence>
-                        </div>
+                        </motion.div>
                       </div>
                     </div>
                   );
@@ -1154,6 +1180,9 @@ export default function Objetivos() {
   );
 }
 
+/* ============================================================
+   Helper Components
+============================================================ */
 function Section({
   title, subtitle, icon: Icon, delay = 0, children,
 }: { title: string; subtitle: string; icon: any; delay?: number; children: React.ReactNode }) {
