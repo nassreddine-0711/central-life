@@ -16,7 +16,7 @@ function calculate(target: Date): TimeLeft {
   return { days, hours, minutes, seconds };
 }
 
-export function Countdown({ target }: { target: Date }) {
+export function Countdown({ target, title = "Cuenta atrás", subtitle = "Destino" }: { target: Date; title?: string; subtitle?: string }) {
   const [time, setTime] = useState<TimeLeft>(() => calculate(target));
 
   useEffect(() => {
@@ -51,10 +51,14 @@ export function Countdown({ target }: { target: Date }) {
 
         <div className="relative flex flex-col items-center text-center">
           <span className="rounded-full border border-border/60 bg-background/40 px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.25em] text-muted-foreground backdrop-blur">
-            Destino 25 · Cuenta atrás
+            {subtitle}
           </span>
           <h1 className="mt-4 text-2xl font-semibold md:text-3xl">
-            Hasta tu <span className="text-gradient">25 cumpleaños</span>
+            {title.includes("años") ? (
+              <>Hasta tu <span className="text-gradient">{title}</span></>
+            ) : (
+              <span className="text-gradient">{title}</span>
+            )}
           </h1>
 
           <div className="mt-10 grid w-full grid-cols-2 gap-3 md:gap-5 lg:grid-cols-4">

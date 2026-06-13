@@ -75,7 +75,6 @@ function ViajesInner() {
         </div>
       </div>
 
-
       <AnimatePresence mode="wait">
         {view === "globe" ? (
           <motion.div
@@ -147,7 +146,7 @@ function ViajesInner() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25 }}
-            className="absolute inset-0 overflow-y-auto pt-32"
+            className="absolute top-28 sm:top-36 bottom-0 left-0 right-0 overflow-y-auto"
           >
             <Bitacora />
           </motion.div>

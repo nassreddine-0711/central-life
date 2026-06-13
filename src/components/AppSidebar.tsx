@@ -19,7 +19,7 @@ export function AppSidebar() {
   const isActive = (path: string) => pathname === path;
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border shrink-0 z-40">
       <SidebarContent className="bg-sidebar/60 backdrop-blur-xl">
         {/* Brand */}
         <div className={`flex items-center gap-3 px-4 py-6 ${collapsed ? "justify-center px-2" : ""}`}>
@@ -35,7 +35,7 @@ export function AppSidebar() {
           )}
         </div>
 
-        <SidebarGroup>
+        <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu className="gap-1 px-2">
               {navItems.map((item) => {
@@ -44,13 +44,13 @@ export function AppSidebar() {
                   <SidebarMenuItem key={item.url}>
                     <SidebarMenuButton
                       asChild
-                      className={`group h-12 rounded-xl transition-all duration-300 ${
+                      className={`group h-11 w-full rounded-xl transition-all duration-300 ${
                         active
                           ? "bg-gradient-to-r from-primary/15 to-accent/10 text-foreground shadow-glow-soft"
                           : "hover:bg-sidebar-accent/60 text-sidebar-foreground"
                       }`}
                     >
-                      <NavLink to={item.url} end>
+                      <NavLink to={item.url} end className="flex items-center w-full">
                         <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
                           <item.icon
                             className={`h-[18px] w-[18px] transition-colors ${
@@ -62,12 +62,12 @@ export function AppSidebar() {
                           )}
                         </div>
                         {!collapsed && (
-                          <div className="flex flex-col leading-tight">
-                            <span className="text-sm font-medium">{item.title}</span>
+                          <div className="flex flex-col leading-tight ml-3 truncate">
+                            <span className="text-sm font-medium truncate">{item.title}</span>
                           </div>
                         )}
                         {active && !collapsed && (
-                          <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary shadow-glow" />
+                          <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary shadow-glow shrink-0" />
                         )}
                       </NavLink>
                     </SidebarMenuButton>
@@ -77,9 +77,6 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-
-
       </SidebarContent>
     </Sidebar>
   );

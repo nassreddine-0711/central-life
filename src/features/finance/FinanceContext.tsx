@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
 
-export type CategoryType = "expense" | "income" | "savings";
+export type CategoryType = "expense" | "income" | "savings" | "available";
 
 export interface Category {
   id: string;
@@ -15,6 +15,7 @@ export interface Category {
   tags: string[];       // keywords for auto-classification
   allocation: number;   // % of income routed to this box (0-100)
   budget: number;       // monthly budget reference
+  image?: string;       // base64 image data or URL
   route?: string;       // optional deep link
   locked?: boolean;     // protected (e.g. travel sync)
 }
@@ -50,18 +51,19 @@ interface FinanceState {
 /* ------------------------------------------------------------------ */
 
 const STORAGE_KEY = "finance.state.v2";
-const LEGACY_KEY  = "finance.state.v1";
 
 const DEFAULT_CATEGORIES: Category[] = [
   { id: "fixed",    name: "Gastos Fijos", type: "expense", color: "210 90% 60%",
     icon: "Home", tags: ["alquiler","hipoteca","endesa","iberdrola","naturgy","movistar","vodafone","orange","seguro","mapfre","comunidad","ibi","agua","luz","gas","internet","spotify","netflix","hbo","disney","prime","icloud","gym","gimnasio"],
-    allocation: 50, budget: 1000 },
+    allocation: 0, budget: 1000 },
+  { id: "available_cash", name: "Dinero Disponible", type: "available", color: "152 75% 48%",
+    icon: "Wallet", tags: [], allocation: 40, budget: 0 },
   { id: "savings",  name: "Ahorro", type: "savings", color: "45 95% 58%",
     icon: "PiggyBank", tags: ["traspaso ahorro","indexa","myinvestor","fondo","deposito"],
-    allocation: 20, budget: 400 },
+    allocation: 30, budget: 400 },
   { id: "travel",   name: "Viajes", type: "savings", color: "190 95% 55%",
     icon: "Plane", tags: ["ryanair","vueling","iberia","easyjet","booking","airbnb","renfe","ave","blablacar","uber","cabify","hotel","hostal","expedia","skyscanner"],
-    allocation: 15, budget: 300, route: "/viajes", locked: true },
+    allocation: 30, budget: 300, route: "/viajes", locked: true },
   { id: "variable", name: "Variables", type: "expense", color: "280 75% 65%",
     icon: "Sparkles", tags: ["mercadona","lidl","carrefour","alcampo","dia","sushi","burger","mcdonald","starbucks","amazon","aliexpress","zara","decathlon","ikea","restaurante","cafe","farmacia","fnac"],
     allocation: 0, budget: 0 },
@@ -74,24 +76,6 @@ function loadState(): FinanceState {
       const parsed = JSON.parse(raw) as FinanceState;
       if (parsed.categories?.length) return parsed;
     }
-    // migrate legacy v1
-    const legacy = localStorage.getItem(LEGACY_KEY);
-    if (legacy) {
-      const old = JSON.parse(legacy);
-      const cats = DEFAULT_CATEGORIES.map((c) => ({
-        ...c,
-        allocation: old.allocation?.[c.id] ?? c.allocation,
-        budget:     old.budgets?.[c.id]    ?? c.budget,
-      }));
-      const balances: Record<string, number> = {};
-      cats.forEach((c) => { balances[c.id] = old.balances?.[c.id] ?? 0; });
-      const transactions: Transaction[] = (old.transactions || []).map((t: any) => ({
-        ...t,
-        categoryId: t.box ?? "all",
-        split: t.split,
-      }));
-      return { categories: cats, balances, transactions };
-    }
   } catch { /* ignore */ }
   const balances: Record<string, number> = {};
   DEFAULT_CATEGORIES.forEach((c) => (balances[c.id] = 0));
@@ -103,7 +87,7 @@ function loadState(): FinanceState {
 /* ------------------------------------------------------------------ */
 
 interface FinanceContextValue extends FinanceState {
-  addIncome: (amount: number, note?: string) => void;
+  addIncome: (amount: number, note?: string, specificCategoryId?: string) => void;
   addExpense: (categoryId: string, amount: number, note?: string) => void;
   importTransactions: (items: ImportItem[]) => { imported: number; skipped: number };
   removeTransaction: (id: string) => void;
@@ -117,7 +101,6 @@ interface FinanceContextValue extends FinanceState {
 
   reset: () => void;
 
-  // Travel sync helpers (id: "travel")
   travelSavings: number;
   setTravelSavings: (n: number) => void;
 }
@@ -132,20 +115,28 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   }, [state]);
 
   /* ---- transactions ---- */
-  const addIncome = useCallback((amount: number, note?: string) => {
+  const addIncome = useCallback((amount: number, note?: string, specificCategoryId?: string) => {
     if (!amount || amount <= 0) return;
     setState((prev) => {
       const split: Record<string, number> = {};
       const balances = { ...prev.balances };
-      prev.categories.forEach((c) => {
-        if (!c.allocation) return;
-        const part = +(amount * c.allocation / 100).toFixed(2);
-        split[c.id] = part;
-        balances[c.id] = +((balances[c.id] || 0) + part).toFixed(2);
-      });
+
+      if (specificCategoryId) {
+        split[specificCategoryId] = amount;
+        balances[specificCategoryId] = +((balances[specificCategoryId] || 0) + amount).toFixed(2);
+      } else {
+        const distributableCategories = prev.categories.filter((c) => c.type === "savings" || c.type === "available");
+        distributableCategories.forEach((c) => {
+          if (!c.allocation) return;
+          const part = +(amount * c.allocation / 100).toFixed(2);
+          split[c.id] = part;
+          balances[c.id] = +((balances[c.id] || 0) + part).toFixed(2);
+        });
+      }
+
       const tx: Transaction = {
         id: crypto.randomUUID(), type: "income", amount,
-        categoryId: "all", note, date: new Date().toISOString(), split,
+        categoryId: specificCategoryId || "all", note, date: new Date().toISOString(), split,
       };
       return { ...prev, balances, transactions: [tx, ...prev.transactions] };
     });
@@ -156,6 +147,15 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     setState((prev) => {
       const balances = { ...prev.balances };
       balances[categoryId] = +((balances[categoryId] || 0) - amount).toFixed(2);
+      
+      const cat = prev.categories.find((c) => c.id === categoryId);
+      if (cat && cat.type === "expense") {
+        const availableBox = prev.categories.find((c) => c.type === "available");
+        if (availableBox) {
+          balances[availableBox.id] = +((balances[availableBox.id] || 0) - amount).toFixed(2);
+        }
+      }
+
       const tx: Transaction = {
         id: crypto.randomUUID(), type: "expense", amount,
         categoryId, note, date: new Date().toISOString(),
@@ -170,33 +170,39 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       const existing = new Set(prev.transactions.map((t) => t.hash).filter(Boolean) as string[]);
       const balances = { ...prev.balances };
       const newTx: Transaction[] = [];
+      
       for (const it of items) {
         if (existing.has(it.hash)) { skipped++; continue; }
         existing.add(it.hash);
         const isIncome = it.amount >= 0;
         const abs = Math.abs(+it.amount.toFixed(2));
+        
         if (isIncome) {
-          // Distribute income across categories using allocation percentages
           const split: Record<string, number> = {};
-          prev.categories.forEach((c) => {
+          const distributableCategories = prev.categories.filter((c) => c.type === "savings" || c.type === "available");
+          distributableCategories.forEach((c) => {
             if (!c.allocation) return;
             const part = +(abs * c.allocation / 100).toFixed(2);
             split[c.id] = part;
             balances[c.id] = +((balances[c.id] || 0) + part).toFixed(2);
           });
           newTx.push({
-            id: crypto.randomUUID(),
-            type: "income",
-            amount: abs, categoryId: "all",
-            note: it.concept, date: it.date, hash: it.hash, imported: true,
-            split,
+            id: crypto.randomUUID(), type: "income", amount: abs, categoryId: "all",
+            note: it.concept, date: it.date, hash: it.hash, imported: true, split,
           });
         } else {
           balances[it.categoryId] = +((balances[it.categoryId] || 0) - abs).toFixed(2);
+          
+          const cat = prev.categories.find((c) => c.id === it.categoryId);
+          if (cat && cat.type === "expense") {
+            const availableBox = prev.categories.find((c) => c.type === "available");
+            if (availableBox) {
+              balances[availableBox.id] = +((balances[availableBox.id] || 0) - abs).toFixed(2);
+            }
+          }
+
           newTx.push({
-            id: crypto.randomUUID(),
-            type: "expense",
-            amount: abs, categoryId: it.categoryId,
+            id: crypto.randomUUID(), type: "expense", amount: abs, categoryId: it.categoryId,
             note: it.concept, date: it.date, hash: it.hash, imported: true,
           });
         }
@@ -212,12 +218,21 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       const tx = prev.transactions.find((t) => t.id === id);
       if (!tx) return prev;
       const balances = { ...prev.balances };
+      
       if (tx.type === "income" && tx.split) {
         for (const [catId, part] of Object.entries(tx.split)) {
           balances[catId] = +((balances[catId] || 0) - part).toFixed(2);
         }
       } else if (tx.type === "expense") {
         balances[tx.categoryId] = +((balances[tx.categoryId] || 0) + tx.amount).toFixed(2);
+        
+        const cat = prev.categories.find((c) => c.id === tx.categoryId);
+        if (cat && cat.type === "expense") {
+          const availableBox = prev.categories.find((c) => c.type === "available");
+          if (availableBox) {
+            balances[availableBox.id] = +((balances[availableBox.id] || 0) + tx.amount).toFixed(2);
+          }
+        }
       }
       return {
         ...prev,
@@ -241,6 +256,13 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
             }
           } else if (t.type === "expense") {
             balances[t.categoryId] = +((balances[t.categoryId] || 0) + t.amount).toFixed(2);
+            const cat = prev.categories.find((c) => c.id === t.categoryId);
+            if (cat && cat.type === "expense") {
+              const availableBox = prev.categories.find((c) => c.type === "available");
+              if (availableBox) {
+                balances[availableBox.id] = +((balances[availableBox.id] || 0) + t.amount).toFixed(2);
+              }
+            }
           }
           removed++;
         } else {
@@ -318,10 +340,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     ...state,
     addIncome, addExpense, importTransactions, removeTransaction, removeMonth,
     addCategory, updateCategory, removeCategory, setAllocations,
-    countTransactionsByCategory,
-    reset,
-    travelSavings: state.balances.travel ?? 0,
-    setTravelSavings,
+    countTransactionsByCategory, reset,
+    travelSavings: state.balances.travel ?? 0, setTravelSavings,
   }), [state, addIncome, addExpense, importTransactions, removeTransaction, removeMonth, addCategory, updateCategory, removeCategory, setAllocations, countTransactionsByCategory, reset, setTravelSavings]);
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
@@ -332,10 +352,6 @@ export function useFinance() {
   if (!ctx) throw new Error("useFinance must be used within FinanceProvider");
   return ctx;
 }
-
-/* ------------------------------------------------------------------ */
-/* Icon registry                                                       */
-/* ------------------------------------------------------------------ */
 
 import {
   Home, PiggyBank, Plane, Sparkles, Wallet, Heart, ShoppingCart, Car,
