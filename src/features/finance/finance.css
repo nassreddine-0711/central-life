@@ -1,0 +1,81 @@
+/* Finanzas — Fintech minimal HUD aligned with the rest of the system. */
+
+.fin {
+  --fin-bg: 230 25% 3%;
+  --fin-paper: 230 30% 7% / 0.6;
+  --fin-ink: 210 40% 98%;
+  --fin-mute: 220 15% 60%;
+  --fin-line: 195 60% 60% / 0.16;
+  --fin-input-bg: 230 25% 8% / 0.7;
+  --fin-panel: 230 30% 7% / 0.7;
+  --fin-glass-from: 230 30% 10% / 0.6;
+  --fin-glass-to:   230 30% 6%  / 0.4;
+  --fin-shadow: 230 50% 0% / 0.7;
+
+  --fin-income: 152 75% 48%;     /* emerald */
+  --fin-expense: 6 80% 68%;      /* salmon */
+  --fin-warn: 14 90% 64%;        /* salmon warn */
+
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, hsl(152 75% 48% / 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, hsl(195 100% 60% / 0.08), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 0% 80%, hsl(45 95% 58% / 0.06), transparent 60%),
+    hsl(var(--fin-bg));
+  color: hsl(var(--fin-ink));
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.light .fin {
+  --fin-bg: 220 30% 97%;
+  --fin-paper: 0 0% 100% / 0.7;
+  --fin-ink: 230 30% 12%;
+  --fin-mute: 220 15% 38%;
+  --fin-line: 195 70% 35% / 0.2;
+  --fin-input-bg: 0 0% 100% / 0.85;
+  --fin-panel: 0 0% 100% / 0.78;
+  --fin-glass-from: 0 0% 100% / 0.98;
+  --fin-glass-to:   0 0% 100% / 0.95;
+  --fin-shadow: 220 40% 30% / 0.18;
+
+  --fin-income: 152 65% 35%;
+  --fin-expense: 6 70% 52%;
+  --fin-warn: 14 80% 50%;
+}
+
+.fin-mono {
+  font-family: 'JetBrains Mono', 'Roboto Mono', monospace;
+  font-feature-settings: 'tnum' 1;
+}
+
+.fin-glass {
+  background:
+    linear-gradient(135deg, hsl(var(--fin-glass-from)), hsl(var(--fin-glass-to)));
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid hsl(var(--fin-line));
+  box-shadow:
+    inset 0 1px 0 0 hsl(0 0% 100% / 0.04),
+    0 20px 60px -20px hsl(var(--fin-shadow));
+  border-radius: 1rem;
+}
+
+.fin-input {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--fin-line));
+  background: hsl(var(--fin-input-bg));
+  padding: 0.55rem 0.8rem;
+  font-size: 0.85rem;
+  color: hsl(var(--fin-ink));
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.fin-input:focus {
+  border-color: hsl(var(--fin-income) / 0.6);
+  box-shadow: 0 0 0 3px hsl(var(--fin-income) / 0.15);
+}
+.fin-input::placeholder { color: hsl(var(--fin-mute) / 0.7); }
+
+.fin-brackets { position: relative; }
+.fin-brackets::before, .fin-brackets::after { content: none; }
+
