@@ -18,15 +18,19 @@ export default defineConfig(({ mode }) => ({
     mode === "development" && componentTagger(),
     VitePWA({
       registerType: "autoUpdate",
-      injectRegister: 'auto', // CRÍTICO: Asegura que el instalador de la app se ejecute
-      includeAssets: ["placeholder.svg"], // Solo incluimos el SVG que sabemos que tienes
+      injectRegister: 'auto',
+      includeAssets: ["placeholder.svg"],
+      // ESTO ES LO QUE FALTABA: Aumentamos el límite de caché a 5MB
+      workbox: {
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, 
+      },
       manifest: {
         name: "My Life NB",
         short_name: "MyLifeNB",
         description: "Sistema personal de optimización de vida y roadmap de objetivos",
-        theme_color: "#ffffff", // Adaptado a tu nuevo modo claro
+        theme_color: "#ffffff",
         background_color: "#ffffff",
-        display: "standalone", // CRÍTICO: Elimina la barra de URL al abrirla como App
+        display: "standalone",
         orientation: "portrait",
         icons: [
           {
