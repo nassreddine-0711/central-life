@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 import { toast } from "sonner";
 import { subMonths, parseISO } from "date-fns";
 import {
@@ -77,6 +78,13 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useEffect(() => { localStorage.setItem(TASKS_KEY, JSON.stringify(filterOldCompletedTasks(tasks))); }, [tasks]);
   useEffect(() => { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }, [notes]);
   useEffect(() => { localStorage.setItem(NOTE_CATS_KEY, JSON.stringify(noteCats)); }, [noteCats]);
+
+  const setTasksCb = useCallback((v: Task[]) => setTasks(filterOldCompletedTasks(v)), []);
+  const setNotesCb = useCallback((v: Note[]) => setNotes(v.map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))), []);
+  const setNoteCatsCb = useCallback((v: string[]) => setNoteCats(v), []);
+  useSupabaseSync("cerebro_tasks", tasks, setTasksCb);
+  useSupabaseSync("cerebro_notes", notes, setNotesCb);
+  useSupabaseSync("cerebro_notecats", noteCats, setNoteCatsCb);
 
   const addTask: CerebroCtx["addTask"] = useCallback((partial) => {
     const t: Task = {

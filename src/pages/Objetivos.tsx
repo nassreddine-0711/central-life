@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -45,7 +46,6 @@ const DEFAULT_CONFIG: RoadmapConfig = { birthDate: "", targetType: "age", target
 function loadGoals(): Goal[] {
   try { return JSON.parse(localStorage.getItem(LS_GOALS) || "[]"); } catch { return []; }
 }
-function saveGoals(g: Goal[]) { localStorage.setItem(LS_GOALS, JSON.stringify(g)); }
 
 function loadConfig(): RoadmapConfig {
   try { return JSON.parse(localStorage.getItem(LS_CONFIG) || JSON.stringify(DEFAULT_CONFIG)); } catch { return DEFAULT_CONFIG; }
@@ -631,6 +631,11 @@ function ConfigModal({ initial, onClose, onSave }: { initial: RoadmapConfig; onC
 export default function Objetivos() {
   const [goals, setGoals] = useState<Goal[]>(() => loadGoals());
   const [config, setConfig] = useState<RoadmapConfig>(() => loadConfig());
+
+  const setGoalsCb = useCallback((v: Goal[]) => setGoals(v), []);
+  const setConfigCb = useCallback((v: RoadmapConfig) => setConfig(v), []);
+  useSupabaseSync("objetivos_goals", goals, setGoalsCb);
+  useSupabaseSync("objetivos_config", config, setConfigCb);
   const [createCtx, setCreateCtx] = useState<CreateContext | null>(null);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [showConfig, setShowConfig] = useState(false);
@@ -649,7 +654,7 @@ export default function Objetivos() {
     setGoals((prev) => prev.map((g) => g.id === updated.id ? updated : g));
   };
 
-  useEffect(() => { saveGoals(goals); }, [goals]);
+  useEffect(() => { localStorage.setItem(LS_GOALS, JSON.stringify(goals)); }, [goals]);
   useEffect(() => { localStorage.setItem(LS_CONFIG, JSON.stringify(config)); }, [config]);
 
   const location = useLocation();
