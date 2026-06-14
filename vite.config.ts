@@ -19,17 +19,20 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "robots.txt", "apple-touch-icon.png"],
+      workbox: {
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB
+      },
       manifest: {
         name: "Central Life Dashboard",
         short_name: "CentralLife",
         description: "Sistema personal de optimización de vida y roadmap de objetivos",
         theme_color: "#0a0a0a", 
         background_color: "#0a0a0a",
-        display: "standalone", // Esto elimina la barra de navegación en el móvil
+        display: "standalone",
         orientation: "portrait",
         icons: [
           {
-            src: "placeholder.svg", // Utiliza tu recurso temporal de la carpeta public
+            src: "placeholder.svg",
             sizes: "192x192",
             type: "image/svg+xml",
           },
