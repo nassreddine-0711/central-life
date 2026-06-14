@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, ReactNode } from "react";
 import { FOOD_DB, ACTIVITY_PRESETS, Food } from "./foodDatabase";
 import { todayISO as todayISOHelper } from "./dateUtils";
+import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 
 export interface FoodEntry {
   id: string;
@@ -55,8 +56,8 @@ interface HealthState {
   setGlassMl: (n: number) => void;
 
   // selected day (for editing)
-  today: string;          // real "today"
-  selectedDate: string;   // currently viewed date (YYYY-MM-DD)
+  today: string;
+  selectedDate: string;
   setSelectedDate: (d: string) => void;
   goToToday: () => void;
   isToday: boolean;
@@ -126,52 +127,57 @@ const seedWeights: WeightEntry[] = [
 
 const todayISO = todayISOHelper;
 
-function loadLS<T>(key: string, fallback: T): T {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? (JSON.parse(v) as T) : fallback;
-  } catch {
-    return fallback;
-  }
+// ── Tipo que se guarda en Supabase ──────────────────────────────────────────
+interface HealthPersistedData {
+  bmr: number;
+  hydrationGoal: number;
+  glassMl: number;
+  customFoods: CustomFood[];
+  customActivities: CustomActivity[];
+  hiddenPresets: string[];
+  records: Record<string, DailyRecord>;
+  weights: WeightEntry[];
 }
-function saveLS<T>(key: string, v: T) {
-  try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
-}
-
-const K = {
-  bmr: "health.bmr",
-  hyd: "health.hydrationGoal",
-  ml: "health.glassMl",
-  customFoods: "health.customFoods",
-  customActivities: "health.customActivities",
-  records: "health.records", // { [date]: DailyRecord }
-  hiddenPresets: "health.hiddenPresets",
-  weights: "health.weights",
-};
 
 export function HealthProvider({ children }: { children: ReactNode }) {
-  const [bmr, setBmrState] = useState<number>(() => loadLS(K.bmr, 1750));
-  const [hydrationGoal, setHydrationGoalState] = useState<number>(() => loadLS(K.hyd, 8));
-  const [glassMl, setGlassMlState] = useState<number>(() => loadLS(K.ml, 250));
+  const [bmr, setBmrState] = useState<number>(1750);
+  const [hydrationGoal, setHydrationGoalState] = useState<number>(8);
+  const [glassMl, setGlassMlState] = useState<number>(250);
 
-  const [customFoods, setCustomFoods] = useState<CustomFood[]>(() => loadLS(K.customFoods, []));
-  const [customActivities, setCustomActivities] = useState<CustomActivity[]>(() => loadLS(K.customActivities, []));
-  const [hiddenPresets, setHiddenPresets] = useState<string[]>(() => loadLS(K.hiddenPresets, []));
+  const [customFoods, setCustomFoods] = useState<CustomFood[]>([]);
+  const [customActivities, setCustomActivities] = useState<CustomActivity[]>([]);
+  const [hiddenPresets, setHiddenPresets] = useState<string[]>([]);
 
-  const [records, setRecords] = useState<Record<string, DailyRecord>>(() => loadLS(K.records, {}));
-  const [weights, setWeights] = useState<WeightEntry[]>(() => loadLS(K.weights, seedWeights));
+  const [records, setRecords] = useState<Record<string, DailyRecord>>({});
+  const [weights, setWeights] = useState<WeightEntry[]>(seedWeights);
 
   const [today, setToday] = useState<string>(todayISO());
   const [selectedDate, setSelectedDateState] = useState<string>(todayISO());
 
-  // Auto-detect day change (every 30s). When the system date crosses 00:00,
-  // refresh `today`; if user was viewing the previous "today", advance them.
+  // ── Sync con Supabase ───────────────────────────────────────────────────
+  const healthData: HealthPersistedData = {
+    bmr, hydrationGoal, glassMl,
+    customFoods, customActivities, hiddenPresets,
+    records, weights,
+  };
+
+  useSupabaseSync<HealthPersistedData>("health", healthData, (loaded) => {
+    if (loaded.bmr !== undefined)              setBmrState(loaded.bmr);
+    if (loaded.hydrationGoal !== undefined)    setHydrationGoalState(loaded.hydrationGoal);
+    if (loaded.glassMl !== undefined)          setGlassMlState(loaded.glassMl);
+    if (loaded.customFoods !== undefined)      setCustomFoods(loaded.customFoods);
+    if (loaded.customActivities !== undefined) setCustomActivities(loaded.customActivities);
+    if (loaded.hiddenPresets !== undefined)    setHiddenPresets(loaded.hiddenPresets);
+    if (loaded.records !== undefined)          setRecords(loaded.records);
+    if (loaded.weights !== undefined)          setWeights(loaded.weights);
+  });
+
+  // ── Auto-detect day change ──────────────────────────────────────────────
   useEffect(() => {
     const tick = () => {
       const now = todayISO();
       setToday((prev) => {
         if (prev !== now) {
-          // If user was on the old "today", move them to the new one.
           setSelectedDateState((sel) => (sel === prev ? now : sel));
           return now;
         }
@@ -190,16 +196,6 @@ export function HealthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const current: DailyRecord = records[selectedDate] ?? { foods: [], activities: [], glasses: 0 };
-
-  // persistence
-  useEffect(() => saveLS(K.bmr, bmr), [bmr]);
-  useEffect(() => saveLS(K.hyd, hydrationGoal), [hydrationGoal]);
-  useEffect(() => saveLS(K.ml, glassMl), [glassMl]);
-  useEffect(() => saveLS(K.customFoods, customFoods), [customFoods]);
-  useEffect(() => saveLS(K.customActivities, customActivities), [customActivities]);
-  useEffect(() => saveLS(K.records, records), [records]);
-  useEffect(() => saveLS(K.hiddenPresets, hiddenPresets), [hiddenPresets]);
-  useEffect(() => saveLS(K.weights, weights), [weights]);
 
   const setSelectedDate = useCallback((d: string) => setSelectedDateState(d), []);
   const goToToday = useCallback(() => setSelectedDateState(todayISO()), []);

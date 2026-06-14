@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, ReactNode, useCallback } from "react";
+import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 
 export type MediaType = "movie" | "series" | "documentary" | "video";
 export type MediaStatus = "watchlist" | "watching" | "watched";
@@ -6,10 +7,10 @@ export type MediaStatus = "watchlist" | "watching" | "watched";
 export interface MediaItem {
   id: string;
   title: string;
-  creator?: string;          // director / canal / autor
+  creator?: string;
   type: MediaType;
   status: MediaStatus;
-  cover?: string;            // url o data:image base64
+  cover?: string;
   notes?: string;
   notesUpdatedAt?: number;
 
@@ -35,7 +36,6 @@ interface Ctx {
 }
 
 const AVContext = createContext<Ctx | null>(null);
-const KEY = "audiovisual_collection";
 
 const defaults: MediaItem[] = [
   { id: "av1", title: "Dune: Parte Dos", creator: "Denis Villeneuve", type: "movie", status: "watchlist" },
@@ -44,30 +44,21 @@ const defaults: MediaItem[] = [
   { id: "av4", title: "MIT 6.006 Algorithms", creator: "MIT OpenCourseWare", type: "video", status: "watching", url: "https://www.youtube.com/playlist?list=PLUl4u3cNGP63EdVPNLG3ToM6LaEUuStEY" },
 ];
 
-function load<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 export function AudiovisualProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<MediaItem[]>(() => load(KEY, defaults));
+  const [items, setItems] = useState<MediaItem[]>(defaults);
 
-  useEffect(() => {
-    try { localStorage.setItem(KEY, JSON.stringify(items)); } catch { /* quota */ }
-  }, [items]);
+  // ── Sync con Supabase ───────────────────────────────────────────────────
+  useSupabaseSync("audiovisual", items, setItems);
 
   const addItem: Ctx["addItem"] = useCallback((m) => {
     const created: MediaItem = { ...m, id: crypto.randomUUID() };
     setItems((p) => [...p, created]);
     return created;
   }, []);
+
   const updateItem: Ctx["updateItem"] = useCallback((id, patch) =>
     setItems((p) => p.map((x) => (x.id === id ? { ...x, ...patch } : x))), []);
+
   const removeItem: Ctx["removeItem"] = useCallback((id) =>
     setItems((p) => p.filter((x) => x.id !== id)), []);
 

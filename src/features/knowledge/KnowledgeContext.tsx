@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 
 export type MilestoneStatus = "completed" | "active" | "planned";
 export interface Milestone {
@@ -7,8 +8,8 @@ export interface Milestone {
   institution?: string;
   year: string;
   status: MilestoneStatus;
-  progress?: number; // 0-100
-  detail?: string; // ej: "2/4 años"
+  progress?: number;
+  detail?: string;
 }
 
 export type LangLevel = "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
@@ -18,7 +19,7 @@ export interface Language {
   name: string;
   current: LangLevel;
   target?: LangLevel;
-  mastered: boolean; // true => capa "dominados"
+  mastered: boolean;
 }
 
 export type BookStatus = "wishlist" | "reading" | "read";
@@ -26,12 +27,12 @@ export interface Book {
   id: string;
   title: string;
   author: string;
-  cover?: string;       // url o data:image base64 (comprimido)
+  cover?: string;
   status: BookStatus;
   pagesRead?: number;
   pagesTotal?: number;
   featured?: boolean;
-  notes?: string;       // diario de lectura
+  notes?: string;
   notesUpdatedAt?: number;
 }
 
@@ -50,10 +51,6 @@ interface Ctx {
 }
 
 const KnowledgeContext = createContext<Ctx | null>(null);
-
-const KEY_M = "knowledge.milestones.v1";
-const KEY_L = "knowledge.languages.v1";
-const KEY_B = "knowledge.books.v1";
 
 const defaultMilestones: Milestone[] = [
   { id: "m1", title: "Bachillerato Científico", institution: "IES", year: "2018", status: "completed" },
@@ -74,24 +71,25 @@ const defaultBooks: Book[] = [
   { id: "b4", title: "Deep Work", author: "Cal Newport", status: "wishlist" },
 ];
 
-function load<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+interface KnowledgePersistedData {
+  milestones: Milestone[];
+  languages: Language[];
+  books: Book[];
 }
 
 export function KnowledgeProvider({ children }: { children: ReactNode }) {
-  const [milestones, setMilestones] = useState<Milestone[]>(() => load(KEY_M, defaultMilestones));
-  const [languages, setLanguages] = useState<Language[]>(() => load(KEY_L, defaultLanguages));
-  const [books, setBooks] = useState<Book[]>(() => load(KEY_B, defaultBooks));
+  const [milestones, setMilestones] = useState<Milestone[]>(defaultMilestones);
+  const [languages, setLanguages] = useState<Language[]>(defaultLanguages);
+  const [books, setBooks] = useState<Book[]>(defaultBooks);
 
-  useEffect(() => { localStorage.setItem(KEY_M, JSON.stringify(milestones)); }, [milestones]);
-  useEffect(() => { localStorage.setItem(KEY_L, JSON.stringify(languages)); }, [languages]);
-  useEffect(() => { localStorage.setItem(KEY_B, JSON.stringify(books)); }, [books]);
+  // ── Sync con Supabase ───────────────────────────────────────────────────
+  const knowledgeData: KnowledgePersistedData = { milestones, languages, books };
+
+  useSupabaseSync<KnowledgePersistedData>("knowledge", knowledgeData, (loaded) => {
+    if (loaded.milestones) setMilestones(loaded.milestones);
+    if (loaded.languages)  setLanguages(loaded.languages);
+    if (loaded.books)      setBooks(loaded.books);
+  });
 
   const addMilestone: Ctx["addMilestone"] = (m) => setMilestones((p) => [...p, { ...m, id: crypto.randomUUID() }]);
   const removeMilestone: Ctx["removeMilestone"] = (id) => setMilestones((p) => p.filter((x) => x.id !== id));
@@ -124,7 +122,6 @@ export function useKnowledge() {
   return ctx;
 }
 
-// Búsqueda de portadas usando Open Library
 export async function fetchCover(title: string, author: string): Promise<string | undefined> {
   try {
     const q = encodeURIComponent(`${title} ${author}`.trim());
@@ -132,8 +129,6 @@ export async function fetchCover(title: string, author: string): Promise<string 
     const data = await res.json();
     const doc = data?.docs?.[0];
     if (doc?.cover_i) return `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
-  } catch {
-    /* noop */
-  }
+  } catch { /* noop */ }
   return undefined;
 }

@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useFinance } from "@/features/finance/FinanceContext";
+import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 
 const TOTAL_COUNTRIES = 195;
-const STORAGE_KEY = "travel.entries.v1";
 
 export type CountryStatus = "visited" | "wishlist" | "none";
 
@@ -31,30 +31,14 @@ interface TravelContextValue {
 
 const TravelContext = createContext<TravelContextValue | null>(null);
 
-function loadEntries(): Record<string, CountryEntry> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, CountryEntry>;
-  } catch {
-    return {};
-  }
-}
-
 export function TravelProvider({ children }: { children: ReactNode }) {
-  const [entries, setEntries] = useState<Record<string, CountryEntry>>(() => loadEntries());
+  const [entries, setEntries] = useState<Record<string, CountryEntry>>({});
   const finance = useFinance();
   const travelSavings = finance.travelSavings;
   const setTravelSavings = finance.setTravelSavings;
 
-  // Persist entries
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-    } catch {
-      // ignore
-    }
-  }, [entries]);
+  // ── Sync con Supabase ───────────────────────────────────────────────────
+  useSupabaseSync("travel", entries, setEntries);
 
   const upsert = useCallback((id: string, patch: Partial<CountryEntry>) => {
     setEntries((prev) => {
@@ -67,7 +51,6 @@ export function TravelProvider({ children }: { children: ReactNode }) {
         mediaLink: "",
       };
 
-      // Cross-sync: Sincronizar hacia finanzas si los gastos del país aumentaron
       if (patch.spend !== undefined && Number(patch.spend) > Number(existing.spend)) {
         const diff = Number(patch.spend) - Number(existing.spend);
         finance.addExpense("travel", diff, `Gasto registrado en: ${patch.countryName || existing.countryName || id}`);
@@ -96,7 +79,6 @@ export function TravelProvider({ children }: { children: ReactNode }) {
   }, [entries]);
 
   const totalSpend = useMemo(() => {
-    // Gastos en países + gastos directos aplicados en la caja de ahorro de viajes en Finanzas
     const financeTravelExpenses = finance.transactions
       .filter((t) => t.type === "expense" && t.categoryId === "travel")
       .reduce((sum, t) => sum + t.amount, 0);

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -110,9 +111,7 @@ const FinanceContext = createContext<FinanceContextValue | null>(null);
 export function FinanceProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<FinanceState>(() => loadState());
 
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* */ }
-  }, [state]);
+  useSupabaseSync("finance", state, setState);
 
   /* ---- transactions ---- */
   const addIncome = useCallback((amount: number, note?: string, specificCategoryId?: string) => {
