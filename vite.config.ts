@@ -18,28 +18,28 @@ export default defineConfig(({ mode }) => ({
     mode === "development" && componentTagger(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "robots.txt", "apple-touch-icon.png"],
-      workbox: {
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB
-      },
+      injectRegister: 'auto', // CRÍTICO: Asegura que el instalador de la app se ejecute
+      includeAssets: ["placeholder.svg"], // Solo incluimos el SVG que sabemos que tienes
       manifest: {
-        name: "Central Life Dashboard",
-        short_name: "CentralLife",
+        name: "My Life NB",
+        short_name: "MyLifeNB",
         description: "Sistema personal de optimización de vida y roadmap de objetivos",
-        theme_color: "#0a0a0a", 
-        background_color: "#0a0a0a",
-        display: "standalone",
+        theme_color: "#ffffff", // Adaptado a tu nuevo modo claro
+        background_color: "#ffffff",
+        display: "standalone", // CRÍTICO: Elimina la barra de URL al abrirla como App
         orientation: "portrait",
         icons: [
           {
             src: "placeholder.svg",
             sizes: "192x192",
             type: "image/svg+xml",
+            purpose: "any maskable"
           },
           {
             src: "placeholder.svg",
             sizes: "512x512",
             type: "image/svg+xml",
+            purpose: "any maskable"
           }
         ],
       },
