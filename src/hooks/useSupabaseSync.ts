@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/features/auth/AuthContext";
+import { toast } from "sonner";
 
 export function useSupabaseSync<T>(
   module: string,
@@ -33,7 +34,14 @@ export function useSupabaseSync<T>(
   const save = useCallback(async (val: T) => {
     if (!user || !initialized.current) return;
 
-    await supabase
+    // Guardado espejo en localStorage para que el módulo de Snapshots ("Versiones") pueda leer los datos
+    try {
+      localStorage.setItem(module, JSON.stringify(val));
+    } catch (e) {
+      console.error("Error al guardar espejo en localStorage para", module, e);
+    }
+
+    const { error } = await supabase
       .from("user_data")
       .upsert(
         {
@@ -44,6 +52,14 @@ export function useSupabaseSync<T>(
         },
         { onConflict: "user_id,module" }
       );
+
+    // Manejo de errores silenciosos
+    if (error) {
+      console.error(`Error saving module ${module} to Supabase:`, error);
+      toast.error("Error de sincronización", {
+        description: `No se pudieron guardar los datos de ${module}. Revisa tu conexión.`,
+      });
+    }
   }, [user, module]);
 
   useEffect(() => {

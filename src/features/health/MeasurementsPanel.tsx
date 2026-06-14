@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Ruler, Plus, Trash2, Image as ImageIcon } from "lucide-react";
 import { useHealth } from "./HealthContext";
 import { todayISO, formatISODate } from "./dateUtils";
+import { fileToCompressedDataURL } from "@/features/knowledge/imageUtils";
 
 const GREEN = "hsl(140 90% 55%)";
 const CYAN = "hsl(190 95% 55%)";
@@ -31,11 +32,14 @@ export function MeasurementsPanel() {
     setWeight(""); setWaist(""); setLegs(""); setArmLeft(""); setArmRight(""); setPhoto("");
   };
 
-  const onPhotoFile = (file?: File) => {
+  const onPhotoFile = async (file?: File) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(reader.result as string);
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await fileToCompressedDataURL(file);
+      setPhoto(compressed);
+    } catch (err) {
+      console.error("Error compressing image", err);
+    }
   };
 
   const sorted = [...weights].sort((a, b) => b.date.localeCompare(a.date));

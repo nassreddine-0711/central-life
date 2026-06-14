@@ -1,7 +1,6 @@
 import { Suspense, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Globe2, BookOpen } from "lucide-react";
-import { TravelProvider } from "@/features/travel/TravelContext";
 import { Globe3D } from "@/features/travel/Globe3D";
 import { CountryModal } from "@/features/travel/CountryModal";
 import { ExplorerRangeHUD, FinanceNexusHUD } from "@/features/travel/TravelHUD";
@@ -164,9 +163,5 @@ function ViajesInner() {
 }
 
 export default function Viajes() {
-  return (
-    <TravelProvider>
-      <ViajesInner />
-    </TravelProvider>
-  );
+  return <ViajesInner />;
 }

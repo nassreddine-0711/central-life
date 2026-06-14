@@ -35,6 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    // Limpia el almacenamiento local al cerrar sesión por privacidad
+    localStorage.clear();
     await supabase.auth.signOut();
   };
 

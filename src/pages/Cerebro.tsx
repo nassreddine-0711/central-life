@@ -2,9 +2,7 @@ import { Brain, ListTodo, Library as LibraryIcon, Archive, Plus, X, StickyNote, 
 import { useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { CerebroProvider, useCerebro } from "@/features/cerebro/CerebroContext";
-import { KnowledgeProvider } from "@/features/knowledge/KnowledgeContext";
-import { AudiovisualProvider } from "@/features/knowledge/AudiovisualContext";
+import { useCerebro } from "@/features/cerebro/CerebroContext";
 import { AccionEnfoquePanel } from "@/features/cerebro/panels/AccionEnfoquePanel";
 import { BibliotecaPanel } from "@/features/cerebro/panels/BibliotecaPanel";
 import { ArchivoPanel } from "@/features/cerebro/panels/ArchivoPanel";
@@ -81,13 +79,5 @@ function CerebroShell() {
 }
 
 export default function Cerebro() {
-  return (
-    <KnowledgeProvider>
-      <AudiovisualProvider>
-        <CerebroProvider>
-          <CerebroShell />
-        </CerebroProvider>
-      </AudiovisualProvider>
-    </KnowledgeProvider>
-  );
+  return <CerebroShell />;
 }

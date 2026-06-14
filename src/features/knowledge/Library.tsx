@@ -7,6 +7,7 @@ import { useCerebro } from "@/features/cerebro/CerebroContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { fileToCompressedDataURL } from "./imageUtils";
 
 const TABS: { key: BookStatus; label: string }[] = [
   { key: "wishlist", label: "Por leer" },
@@ -49,12 +50,12 @@ export function Library() {
 
   const handleCoverFile = async (file: File | undefined) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setForm((f) => ({ ...f, coverPreview: result, coverFile: file }));
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await fileToCompressedDataURL(file);
+      setForm((f) => ({ ...f, coverPreview: compressed, coverFile: file }));
+    } catch (err) {
+      console.error("Error compressing cover", err);
+    }
   };
 
   const handleAdd = async () => {

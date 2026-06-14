@@ -218,7 +218,8 @@ function captureFinance(periodStart: Date, periodEnd: Date): FinanceSnap {
 }
 
 function captureLegacy(): LegacySnap {
-  const goals = readLS<{ id: string; title: string; level: string; done?: boolean; progress?: number }[]>("legado.goals.v1", []);
+  // Corrección: Usar la clave v2 que es donde realmente guardan los Objetivos.
+  const goals = readLS<{ id: string; title: string; level: string; done?: boolean; progress?: number }[]>("legado.goals.v2", []);
   const completed = goals
     .filter((g) => g.done || (g.level === "objective" && (g.progress ?? 0) >= 100))
     .map((g) => ({ id: g.id, title: g.title, level: g.level }));

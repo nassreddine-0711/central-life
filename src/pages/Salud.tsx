@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { HeartPulse, Activity, LineChart as LineChartIcon } from "lucide-react";
-import { HealthProvider } from "@/features/health/HealthContext";
 import { EnergyBalanceCore } from "@/features/health/EnergyBalanceCore";
 import { FoodIntakeCard } from "@/features/health/FoodIntakeCard";
 import { ActivityCard } from "@/features/health/ActivityCard";
@@ -19,79 +18,77 @@ const Salud = () => {
   const [tab, setTab] = useState<Tab>("daily");
 
   return (
-    <HealthProvider>
-      <div className="mx-auto max-w-7xl px-4 py-8 md:px-8 md:py-12">
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="mb-8 flex flex-wrap items-center justify-between gap-4"
-        >
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-primary shadow-glow">
-              <HeartPulse className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                <span className="text-gradient">Health</span>
-              </h1>
-            </div>
+    <div className="mx-auto max-w-7xl px-4 py-8 md:px-8 md:py-12">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="mb-8 flex flex-wrap items-center justify-between gap-4"
+      >
+        <div className="flex items-center gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-primary shadow-glow">
+            <HeartPulse className="h-5 w-5 text-primary-foreground" />
           </div>
-
-          <div className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
-            <TabButton active={tab === "daily"} onClick={() => setTab("daily")} icon={<Activity className="h-3.5 w-3.5" />}>
-              Control Diario
-            </TabButton>
-            <TabButton active={tab === "evolution"} onClick={() => setTab("evolution")} icon={<LineChartIcon className="h-3.5 w-3.5" />}>
-              Evolución
-            </TabButton>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
+              <span className="text-gradient">Health</span>
+            </h1>
           </div>
-        </motion.div>
+        </div>
 
-        <AnimatePresence mode="wait">
-          {tab === "daily" ? (
-            <motion.section
-              key="daily"
-              initial={{ opacity: 0, x: -16 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 16 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              <DateNavigator />
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                <div className="lg:col-span-2">
-                  <EnergyBalanceCore />
-                </div>
-                <div className="space-y-6">
-                  <HydrationTracker />
-                  <ActivityCard />
-                </div>
-              </div>
+        <div className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
+          <TabButton active={tab === "daily"} onClick={() => setTab("daily")} icon={<Activity className="h-3.5 w-3.5" />}>
+            Control Diario
+          </TabButton>
+          <TabButton active={tab === "evolution"} onClick={() => setTab("evolution")} icon={<LineChartIcon className="h-3.5 w-3.5" />}>
+            Evolución
+          </TabButton>
+        </div>
+      </motion.div>
 
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <FoodIntakeCard />
-                <DailySummary />
+      <AnimatePresence mode="wait">
+        {tab === "daily" ? (
+          <motion.section
+            key="daily"
+            initial={{ opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 16 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6"
+          >
+            <DateNavigator />
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <div className="lg:col-span-2">
+                <EnergyBalanceCore />
               </div>
-            </motion.section>
-          ) : (
-            <motion.section
-              key="evolution"
-              initial={{ opacity: 0, x: 16 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -16 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              <MeasurementsPanel />
-              <HistoryCalendar />
-              <EvolutionChart />
-              <TimeLapseGallery />
-            </motion.section>
-          )}
-        </AnimatePresence>
-      </div>
-    </HealthProvider>
+              <div className="space-y-6">
+                <HydrationTracker />
+                <ActivityCard />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <FoodIntakeCard />
+              <DailySummary />
+            </div>
+          </motion.section>
+        ) : (
+          <motion.section
+            key="evolution"
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -16 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6"
+          >
+            <MeasurementsPanel />
+            <HistoryCalendar />
+            <EvolutionChart />
+            <TimeLapseGallery />
+          </motion.section>
+        )}
+      </AnimatePresence>
+    </div>
   );
 };
 
