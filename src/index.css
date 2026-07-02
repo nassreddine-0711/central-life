@@ -4,6 +4,16 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  /* Safe area para notch de iPhone al usar bottom nav */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
 /* My Life NB — Futuristic dark glassmorphism design system.
    All colors HSL. Tokens drive every surface, gradient and glow. */
 
