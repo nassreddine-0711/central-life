@@ -9,10 +9,21 @@ import * as XLSX from "xlsx";
 import { useFinance, type ImportItem, type Category } from "./FinanceContext";
 
 /* -------------------- Categorization (uses dynamic tags) -------------------- */
+
+// Quita acentos y pasa a minúsculas, para que un tag "cafe" reconozca "café"
+// y un concepto con mayúsculas o tildes distintas siga haciendo match.
+function normalizeText(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 function categorize(concept: string, categories: Category[]): string | null {
-  const c = concept.toLowerCase();
+  const c = normalizeText(concept);
   for (const cat of categories) {
-    if (cat.tags.some((k) => k && c.includes(k.toLowerCase()))) return cat.id;
+    if (cat.tags.some((k) => k && c.includes(normalizeText(k)))) return cat.id;
   }
   return null;
 }

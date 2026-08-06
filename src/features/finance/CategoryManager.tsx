@@ -83,6 +83,11 @@ export function CategoryManager({ onClose }: { onClose: () => void }) {
     setTagInput("");
   };
 
+  const removeTag = (tag: string) => {
+    if (!draft) return;
+    setDraft({ ...draft, tags: draft.tags.filter((t) => t !== tag) });
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -241,6 +246,57 @@ export function CategoryManager({ onClose }: { onClose: () => void }) {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div>
+                  <label className="fin-mono text-[10px] uppercase tracking-widest text-[hsl(var(--fin-mute))]">
+                    Palabras clave · Auto-clasificación
+                  </label>
+                  <p className="mt-1 text-[11px] text-[hsl(var(--fin-mute))]">
+                    Si el concepto de un movimiento importado contiene alguna de estas palabras, se asignará automáticamente a esta categoría (ej. <span className="fin-mono">gym</span>, <span className="fin-mono">basicfit</span>).
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); addTag(); }
+                      }}
+                      placeholder="Ej. gym, basicfit, gimnasio"
+                      className="fin-input flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={addTag}
+                      disabled={!tagInput.trim()}
+                      className="fin-mono inline-flex shrink-0 items-center gap-1 rounded-md border border-[hsl(var(--fin-income)/0.5)] bg-[hsl(var(--fin-income)/0.1)] px-3 py-2 text-[10px] uppercase tracking-widest text-[hsl(var(--fin-income))] disabled:opacity-40"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Añadir
+                    </button>
+                  </div>
+                  {draft.tags.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {draft.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="fin-mono inline-flex items-center gap-1 rounded-full border border-[hsl(var(--fin-line))] bg-[hsl(var(--fin-input-bg))] px-2.5 py-1 text-[10px] text-[hsl(var(--fin-ink))]"
+                        >
+                          <Tag className="h-3 w-3 text-[hsl(var(--fin-mute))]" /> {tag}
+                          <button
+                            type="button"
+                            onClick={() => removeTag(tag)}
+                            className="ml-0.5 text-[hsl(var(--fin-mute))] hover:text-[hsl(var(--fin-expense))]"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="fin-mono mt-2 text-[10px] uppercase tracking-widest text-[hsl(var(--fin-mute))]">
+                      Sin palabras clave todavía
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-2">
