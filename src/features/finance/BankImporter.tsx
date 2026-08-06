@@ -18,6 +18,9 @@ function categorize(concept: string, categories: Category[]): string | null {
 }
 
 /* -------------------- Parsers / cleaners -------------------- */
+
+// Formato europeo (imagin y genérico): coma decimal, punto de miles,
+// admite sufijo de divisa pegado al valor (ej. "1.760,06EUR").
 function cleanAmount(raw: string): number {
   if (raw == null) return NaN;
   const s = String(raw).trim();
@@ -27,6 +30,16 @@ function cleanAmount(raw: string): number {
   return parseFloat(cleaned);
 }
 
+// Formato Revolut: punto decimal, sin separador de miles, sin símbolo de
+// divisa en la celda (la divisa va en su propia columna "Divisa").
+function cleanAmountUS(raw: string): number {
+  if (raw == null) return NaN;
+  const s = String(raw).trim().replace(/[^\d.\-]/g, "");
+  if (!s) return NaN;
+  return parseFloat(s);
+}
+
+// Fechas DD/MM/YYYY (imagin) u otros formatos comunes (genérico).
 function parseDate(raw: string): string {
   if (!raw) return new Date().toISOString();
   const s = String(raw).trim();
@@ -38,6 +51,37 @@ function parseDate(raw: string): string {
   }
   const t = Date.parse(s);
   return isNaN(t) ? new Date().toISOString() : new Date(t).toISOString();
+}
+
+// Fechas ISO con hora (Revolut): "YYYY-MM-DD HH:mm:ss" o "YYYY-MM-DD".
+function parseDateISO(raw: string): string {
+  if (!raw) return new Date().toISOString();
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):(\d{2}))?/);
+  if (m) {
+    const [, y, mo, d, h = "0", mi = "0", se = "0"] = m;
+    return new Date(+y, +mo - 1, +d, +h, +mi, +se).toISOString();
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? new Date().toISOString() : new Date(t).toISOString();
+}
+
+/* -------------------- Format detection -------------------- */
+type BankFormat = "revolut" | "imagin" | "generic";
+
+function detectFormat(fields: string[]): BankFormat {
+  const norm = fields.map((f) => f.trim().toLowerCase());
+  const has = (h: string) => norm.includes(h);
+
+  // Revolut: Tipo,Producto,Fecha de inicio,Fecha de finalización,Descripción,Importe,Comisión,Divisa,State,Saldo
+  if (has("tipo") && has("producto") && has("fecha de inicio")) {
+    return "revolut";
+  }
+  // imagin: Concepto;Fecha;Importe;Saldo
+  if (has("concepto") && has("fecha") && has("importe") && !has("fecha de inicio")) {
+    return "imagin";
+  }
+  return "generic";
 }
 
 function pickField(row: Record<string, any>, candidates: string[]): string {
@@ -61,16 +105,31 @@ interface ParsedRow {
   hash: string;
 }
 
-function rowsToParsed(rows: Record<string, any>[], categories: Category[]): ParsedRow[] {
+function rowsToParsed(rows: Record<string, any>[], categories: Category[], format: BankFormat): ParsedRow[] {
+  const conceptCandidates =
+    format === "revolut" ? ["descripción", "descripcion"] :
+    format === "imagin" ? ["concepto"] :
+    ["concepto", "descripcion", "descripción", "detalle"];
+
+  const dateCandidates =
+    format === "revolut" ? ["fecha de inicio"] :
+    format === "imagin" ? ["fecha"] :
+    ["fecha", "fecha valor", "fecha operacion", "date"];
+
+  const amountCandidates = ["importe", "amount", "cantidad"];
+
+  const cleanAmountFn = format === "revolut" ? cleanAmountUS : cleanAmount;
+  const parseDateFn = format === "revolut" ? parseDateISO : parseDate;
+
   const out: ParsedRow[] = [];
   for (const r of rows) {
-    const concept = pickField(r, ["concepto", "descripcion", "descripción", "detalle"]).trim();
-    const dateRaw = pickField(r, ["fecha", "fecha valor", "fecha operacion", "date"]);
-    const amountRaw = pickField(r, ["importe", "amount", "cantidad"]);
+    const concept = pickField(r, conceptCandidates).trim();
+    const dateRaw = pickField(r, dateCandidates);
+    const amountRaw = pickField(r, amountCandidates);
     if (!concept && !amountRaw) continue;
-    const amount = cleanAmount(amountRaw);
+    const amount = cleanAmountFn(amountRaw);
     if (isNaN(amount)) continue;
-    const date = parseDate(dateRaw);
+    const date = parseDateFn(dateRaw);
     const hash = `${date.slice(0, 10)}|${concept.toLowerCase()}|${amount.toFixed(2)}`;
     // Incomes are auto-distributed by allocation %, no manual category needed
     const categoryId = amount >= 0 ? "all" : categorize(concept, categories);
@@ -79,14 +138,17 @@ function rowsToParsed(rows: Record<string, any>[], categories: Category[]): Pars
   return out;
 }
 
-async function parseFile(file: File): Promise<Record<string, any>[]> {
+async function parseFile(file: File): Promise<{ rows: Record<string, any>[]; fields: string[] }> {
   const name = file.name.toLowerCase();
   if (name.endsWith(".csv") || name.endsWith(".txt")) {
     return new Promise((resolve, reject) => {
       Papa.parse(file, {
-        header: true, skipEmptyLines: true, delimiter: "",
+        header: true, skipEmptyLines: true, delimiter: "", // delimiter "" = autodetección (coma o punto y coma)
         transformHeader: (h) => h.trim(),
-        complete: (res) => resolve(res.data as Record<string, any>[]),
+        complete: (res) => resolve({
+          rows: res.data as Record<string, any>[],
+          fields: (res.meta.fields as string[]) || [],
+        }),
         error: reject,
       });
     });
@@ -94,7 +156,9 @@ async function parseFile(file: File): Promise<Record<string, any>[]> {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array" });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as Record<string, any>[];
+  const fields = rows.length ? Object.keys(rows[0]) : [];
+  return { rows, fields };
 }
 
 /* -------------------- Component -------------------- */
@@ -121,12 +185,12 @@ export function BankImporter() {
     setError(null);
     setParsing(true);
     try {
-      const rawAll: Record<string, any>[] = [];
+      const parsed: ParsedRow[] = [];
       for (const f of Array.from(files)) {
-        const r = await parseFile(f);
-        rawAll.push(...r);
+        const { rows, fields } = await parseFile(f);
+        const format = detectFormat(fields);
+        parsed.push(...rowsToParsed(rows, categories, format));
       }
-      const parsed = rowsToParsed(rawAll, categories);
       if (!parsed.length) {
         setError("No se han detectado filas válidas. Revisa que el archivo tenga columnas Concepto, Fecha e Importe.");
       }
