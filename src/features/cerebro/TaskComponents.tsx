@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { format, isSameDay, isToday, eachDayOfInterval, startOfDay, addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, addMonths, subMonths } from "date-fns";
+import { format, isSameDay, isToday, eachDayOfInterval, startOfDay, addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, addMonths, subMonths, addWeeks, subWeeks, isSameWeek } from "date-fns";
 import { es } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Flag, Trash2, Check, Award, Repeat, Pencil, Plus, Zap, Brain, X as XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -177,17 +177,59 @@ export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate }: { t
 }
 
 export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; }) {
-  const days = eachDayOfInterval({ start: startOfDay(new Date()), end: addDays(new Date(), 6) });
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+  const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
+  const isCurrentWeek = isSameWeek(weekStart, new Date(), { weekStartsOn: 1 });
+
+  const sameMonth = isSameMonth(weekStart, weekEnd);
+  const rangeLabel = sameMonth
+    ? `${format(weekStart, "d", { locale: es })} – ${format(weekEnd, "d MMM yyyy", { locale: es })}`
+    : `${format(weekStart, "d MMM", { locale: es })} – ${format(weekEnd, "d MMM yyyy", { locale: es })}`;
+
   return (
     <div className="space-y-3">
-      {days.map(d => {
-        const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
-        return (
-          <Section key={d.toISOString()} title={format(d, "EEEE d MMM", { locale: es })}>
-            {list.length === 0 ? <Empty msg="Sin tareas." /> : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />}
-          </Section>
-        );
-      })}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setWeekStart(w => subWeeks(w, 1))}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setWeekStart(w => addWeeks(w, 1))}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          {!isCurrentWeek && (
+            <Button variant="outline" size="sm" className="h-8" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}>
+              Hoy
+            </Button>
+          )}
+        </div>
+        <h3 className="text-sm font-semibold capitalize text-foreground">{rangeLabel}</h3>
+      </div>
+
+      <div className="-mx-1 overflow-x-auto px-1 pb-2">
+        <div className="grid grid-flow-col auto-cols-[minmax(180px,1fr)] items-start gap-3 xl:auto-cols-fr">
+          {days.map(d => {
+            const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
+            const today = isToday(d);
+            return (
+              <div
+                key={d.toISOString()}
+                className={cn(
+                  "flex flex-col rounded-xl border bg-card/80 p-3 shadow-sm backdrop-blur-sm",
+                  today && "border-primary/50 ring-1 ring-primary/20",
+                )}
+              >
+                <div className="mb-3 text-sm font-semibold capitalize text-foreground">
+                  {format(d, "EEE d MMM", { locale: es })}
+                </div>
+                <div className="flex-1 space-y-2">
+                  {list.length === 0 ? <Empty msg="Sin tareas." /> : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

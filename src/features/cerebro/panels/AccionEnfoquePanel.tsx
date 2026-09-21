@@ -3,6 +3,7 @@ import { Plus, Inbox, Calendar as CalendarIcon, Flag, History } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useState } from "react";
 import { useCerebro } from "../CerebroContext";
 import { Section, Empty, TaskList, TaskRow, WeekView, MonthView } from "../TaskComponents";
@@ -10,9 +11,12 @@ import { PRIO_LABEL } from "../types";
 import { HistorialView } from "../HistorialView";
 import { RutinasPanel } from "./RutinasPanel";
 
+const INBOX_VISIBLE = 6;
+
 export function AccionEnfoquePanel() {
   const { tasks, fadingIds, toggleTask, delTask, updateTask, addTask, openTaskDialog, openQuickCapture } = useCerebro();
   const [quickTask, setQuickTask] = useState("");
+  const [inboxOpen, setInboxOpen] = useState(false);
 
   const addQuick = () => {
     if (!quickTask.trim()) return;
@@ -138,10 +142,17 @@ export function AccionEnfoquePanel() {
             <aside className="space-y-4">
               <Section title={`Inbox (${inbox.length})`} icon={<Inbox className="h-4 w-4" />}>
                 {inbox.length === 0 ? <Empty msg="Inbox vacío." /> : (
-                  <div className="space-y-2">
-                    {inbox.map(t => (
-                      <TaskRow key={t.id} task={t} compact fading={fadingIds.has(t.id)} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
-                    ))}
+                  <div className="flex flex-col">
+                    <div className="space-y-2">
+                      {inbox.slice(0, INBOX_VISIBLE).map(t => (
+                        <TaskRow key={t.id} task={t} compact fading={fadingIds.has(t.id)} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
+                      ))}
+                    </div>
+                    {inbox.length > INBOX_VISIBLE && (
+                      <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setInboxOpen(true)}>
+                        Ver todas ({inbox.length})
+                      </Button>
+                    )}
                   </div>
                 )}
               </Section>
@@ -154,6 +165,19 @@ export function AccionEnfoquePanel() {
           </div>
         </Tabs>
       </div>
+
+      <Dialog open={inboxOpen} onOpenChange={setInboxOpen}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Inbox ({inbox.length})</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {inbox.map(t => (
+              <TaskRow key={t.id} task={t} compact fading={fadingIds.has(t.id)} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── BLOQUE 2: RUTINAS SEMANALES ── */}
       <div className="rounded-2xl border bg-card/50 p-4 shadow-sm backdrop-blur-sm">
