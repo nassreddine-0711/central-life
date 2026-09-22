@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { toast } from "sonner";
 import { Plus, FileText, Link2, Tag, Trash2, Calendar as CalendarIcon, Bookmark, ListTodo, StickyNote, Repeat, X, Image as ImageIcon, Zap, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ import {
   Recurrence, RecurrenceFreq, WEEKDAY_LABELS, WEEKDAY_FULL, describeRecurrence,
 } from "./types";
 import { useCerebro } from "./CerebroContext";
+import { fileToCompressedDataURL } from "@/features/knowledge/imageUtils";
 
 /* ---------- Task Dialog ---------- */
 export function TaskDialog() {
@@ -59,11 +61,15 @@ export function TaskDialog() {
     }
   }, [state.open, state.defaultTitle, editing]);
 
-  const onPhotoFile = (file?: File) => {
+  const onPhotoFile = async (file?: File) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(reader.result as string);
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await fileToCompressedDataURL(file);
+      setPhoto(compressed);
+    } catch (e) {
+      console.error("Error al procesar la foto", e);
+      toast.error("No se pudo procesar la foto", { description: "Prueba con otra imagen." });
+    }
   };
 
   const submit = () => {
@@ -341,11 +347,15 @@ export function NoteSheet() {
     }
   }, [state.open, state.linkedTo, state.defaultCategory]);
 
-  const onPhotoFile = (file?: File) => {
+  const onPhotoFile = async (file?: File) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(reader.result as string);
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await fileToCompressedDataURL(file);
+      setPhoto(compressed);
+    } catch (e) {
+      console.error("Error al procesar la foto", e);
+      toast.error("No se pudo procesar la foto", { description: "Prueba con otra imagen." });
+    }
   };
 
   const submit = () => {

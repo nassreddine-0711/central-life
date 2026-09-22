@@ -75,9 +75,20 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const [taskDialogState, setTaskDialogState] = useState<{ open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; editId?: string }>({ open: false });
   const [quickOpen, setQuickOpen] = useState(false);
 
-  useEffect(() => { localStorage.setItem(TASKS_KEY, JSON.stringify(filterOldCompletedTasks(tasks))); }, [tasks]);
-  useEffect(() => { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }, [notes]);
-  useEffect(() => { localStorage.setItem(NOTE_CATS_KEY, JSON.stringify(noteCats)); }, [noteCats]);
+  const saveLocal = useCallback((key: string, value: unknown, label: string) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.error(`Error al guardar ${label} en localStorage`, e);
+      toast.error("No se pudo guardar", {
+        description: `${label} no cabe en el almacenamiento local (puede ser por una foto muy pesada). Prueba con una foto más pequeña.`,
+      });
+    }
+  }, []);
+
+  useEffect(() => { saveLocal(TASKS_KEY, filterOldCompletedTasks(tasks), "las tareas"); }, [tasks, saveLocal]);
+  useEffect(() => { saveLocal(NOTES_KEY, notes, "las notas"); }, [notes, saveLocal]);
+  useEffect(() => { saveLocal(NOTE_CATS_KEY, noteCats, "las categorías de notas"); }, [noteCats, saveLocal]);
 
   const setTasksCb = useCallback((v: Task[]) => setTasks(filterOldCompletedTasks(v)), []);
   const setNotesCb = useCallback((v: Note[]) => setNotes(v.map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))), []);
