@@ -206,29 +206,15 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate }: { t
         <h3 className="text-sm font-semibold capitalize text-foreground">{rangeLabel}</h3>
       </div>
 
-      <div className="-mx-1 overflow-x-auto px-1 pb-2">
-        <div className="grid grid-flow-col auto-cols-[minmax(260px,1fr)] items-start gap-3 2xl:auto-cols-fr">
-          {days.map(d => {
-            const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
-            const today = isToday(d);
-            return (
-              <div
-                key={d.toISOString()}
-                className={cn(
-                  "flex min-h-[140px] flex-col rounded-xl border bg-card/80 p-3 shadow-sm backdrop-blur-sm",
-                  today && "border-primary/50 ring-1 ring-primary/20",
-                )}
-              >
-                <div className="mb-3 text-sm font-semibold capitalize text-foreground">
-                  {format(d, "EEEE d MMM", { locale: es })}
-                </div>
-                <div className="flex-1 space-y-2">
-                  {list.length === 0 ? <Empty msg="Sin tareas." /> : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      <div className="space-y-3">
+        {days.map(d => {
+          const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
+          return (
+            <Section key={d.toISOString()} title={format(d, "EEEE d MMM", { locale: es })}>
+              {list.length === 0 ? <Empty msg="Sin tareas." /> : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />}
+            </Section>
+          );
+        })}
       </div>
     </div>
   );
