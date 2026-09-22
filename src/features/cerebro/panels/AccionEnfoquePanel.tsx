@@ -167,14 +167,16 @@ export function AccionEnfoquePanel() {
       </div>
 
       <Dialog open={inboxOpen} onOpenChange={setInboxOpen}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="flex h-[85vh] w-[95vw] max-w-5xl flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>Inbox ({inbox.length})</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
-            {inbox.map(t => (
-              <TaskRow key={t.id} task={t} compact fading={fadingIds.has(t.id)} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
-            ))}
+          <div className="flex-1 overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {inbox.map(t => (
+                <TaskRow key={t.id} task={t} compact fading={fadingIds.has(t.id)} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
+              ))}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
