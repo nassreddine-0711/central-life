@@ -45,7 +45,7 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
       <Checkbox className="mt-0.5" checked={task.done || fading} onCheckedChange={() => onToggle(task.id)} />
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2">
-          {task.photo && (
+          {task.photo && !expanded && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setLightbox(true); }}
@@ -70,6 +70,20 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
           >{task.title}</p>
         </div>
 
+        {expanded && task.photo && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setLightbox(true); }}
+            className="mt-2 block"
+            title="Ver foto"
+          >
+            <img
+              src={task.photo}
+              alt=""
+              className="max-h-56 w-full max-w-xs rounded-lg border object-cover transition hover:opacity-90"
+            />
+          </button>
+        )}
         {expanded && task.description && (
           <p className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">
             {task.description}
