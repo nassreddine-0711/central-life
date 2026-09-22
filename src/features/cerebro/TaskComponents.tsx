@@ -168,9 +168,9 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
   );
 }
 
-export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; }) {
+export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate, columns = 1 }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; columns?: 1 | 2; }) {
   return (
-    <div className="space-y-2">
+    <div className={columns === 2 ? "grid grid-cols-1 gap-2 sm:grid-cols-2" : "space-y-2"}>
       {tasks.map(t => <TaskRow key={t.id} task={t} fading={fadingIds?.has(t.id)} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />)}
     </div>
   );
@@ -211,7 +211,7 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate }: { t
           const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
           return (
             <Section key={d.toISOString()} title={format(d, "EEEE d MMM", { locale: es })}>
-              {list.length === 0 ? <Empty msg="Sin tareas." /> : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />}
+              {list.length === 0 ? <Empty msg="Sin tareas." /> : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} columns={2} />}
             </Section>
           );
         })}
