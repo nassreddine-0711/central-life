@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Plus, Trash2, Pencil, Check, X, Eraser, Palette, CalendarDays, Copy, Settings2, Tag,
+  Plus, Trash2, Pencil, Check, X, Eraser, Palette, CalendarDays, Copy, Settings2, Tag, Lock, LockOpen, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,12 @@ interface PeriodBoundaries {
   nightStart: number;
 }
 
+/** Rango de horas (0-24) que se muestra en la tabla. endHour=24 significa hasta las 23:30. */
+interface VisibleRange {
+  startHour: number;
+  endHour: number;
+}
+
 interface RoutinesState {
   versions: RoutineVersion[];
   categories: RoutineCategory[];
@@ -44,6 +50,8 @@ interface RoutinesState {
   periodBoundaries?: PeriodBoundaries;
   showLabelsAlways?: boolean;
   schemaVersion?: number;
+  locked?: boolean;
+  visibleRange?: VisibleRange;
 }
 
 /* ---------- Constants ---------- */
@@ -53,6 +61,8 @@ const DAYS_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábad
 /** 48 slots de media hora: slot 0 = 00:00, slot 1 = 00:30 … slot 47 = 23:30 */
 const SLOTS = Array.from({ length: 48 }, (_, i) => i);
 const DEFAULT_PERIODS: PeriodBoundaries = { morningStart: 7, middayStart: 12, afternoonStart: 14, nightStart: 21 };
+const DEFAULT_VISIBLE_RANGE: VisibleRange = { startHour: 0, endHour: 24 };
+const HOURS_0_24 = Array.from({ length: 25 }, (_, i) => i);
 const PERIOD_LABELS: { key: keyof PeriodBoundaries; label: string }[] = [
   { key: "morningStart", label: "Empieza mi día desde" },
   { key: "middayStart", label: "Mediodía desde" },
@@ -94,6 +104,8 @@ function defaultState(): RoutinesState {
     periodBoundaries: { ...DEFAULT_PERIODS },
     showLabelsAlways: false,
     schemaVersion: 2,
+    locked: false,
+    visibleRange: { ...DEFAULT_VISIBLE_RANGE },
   };
 }
 
@@ -124,6 +136,8 @@ function loadState(): RoutinesState {
     }
     parsed.periodBoundaries = { ...DEFAULT_PERIODS, ...parsed.periodBoundaries };
     if (parsed.showLabelsAlways === undefined) parsed.showLabelsAlways = false;
+    if (parsed.locked === undefined) parsed.locked = false;
+    parsed.visibleRange = { ...DEFAULT_VISIBLE_RANGE, ...parsed.visibleRange };
     if ((parsed.schemaVersion ?? 1) < 2) {
       parsed.versions = parsed.versions.map((v) => ({ ...v, blocks: migrateHourlyBlocks(v.blocks) }));
       parsed.schemaVersion = 2;
@@ -231,8 +245,16 @@ export function RutinasPanel() {
     if (paintCategoryId === id) setPaintCategoryId(null);
   };
 
+  const locked = !!state.locked;
+  const toggleLocked = () => {
+    setState((s) => ({ ...s, locked: !s.locked }));
+    setPaintCategoryId(null);
+    setErasing(false);
+  };
+
   /* ---------- Cell interaction ---------- */
   const applyCell = useCallback((day: number, slot: number) => {
+    if (locked) return;
     const key = `${day}-${slot}`;
     if (erasing) {
       setVersion((v) => {
@@ -250,13 +272,15 @@ export function RutinasPanel() {
       }
       return { ...v, blocks: { ...v.blocks, [key]: paintCategoryId } };
     });
-  }, [paintCategoryId, erasing]); // setVersion is stable enough via setState
+  }, [paintCategoryId, erasing, locked]); // setVersion is stable enough via setState
 
   const onCellMouseDown = (day: number, slot: number) => {
+    if (locked) return;
     setIsPainting(true);
     applyCell(day, slot);
   };
   const onCellMouseEnter = (day: number, slot: number) => {
+    if (locked) return;
     if (isPainting) applyCell(day, slot);
   };
 
@@ -271,6 +295,7 @@ export function RutinasPanel() {
   }, []);
 
   const clearAll = () => {
+    if (locked) return;
     if (!confirm("¿Vaciar todas las celdas de esta rutina?")) return;
     setVersion((v) => ({ ...v, blocks: {} }));
   };
@@ -304,6 +329,14 @@ export function RutinasPanel() {
     }
     return set;
   }, [currentVersion.blocks]);
+
+  const visibleRange = state.visibleRange ?? DEFAULT_VISIBLE_RANGE;
+  const visibleSlots = useMemo(() => {
+    const startSlot = Math.round(visibleRange.startHour * 2);
+    const endSlot = Math.round(visibleRange.endHour * 2);
+    const filtered = SLOTS.filter((s) => s >= startSlot && s < endSlot);
+    return filtered.length > 0 ? filtered : SLOTS;
+  }, [visibleRange.startHour, visibleRange.endHour]);
 
   /* ============================================================
      Render
@@ -354,7 +387,11 @@ export function RutinasPanel() {
           {/* Toolbar inside grid */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-2.5">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {paintCategoryId ? (
+              {locked ? (
+                <span className="flex items-center gap-1.5 font-medium text-foreground">
+                  <Lock className="h-3.5 w-3.5" /> Vista bloqueada (solo consulta)
+                </span>
+              ) : paintCategoryId ? (
                 <>
                   <span
                     className="h-3 w-3 rounded-sm border border-border"
@@ -372,13 +409,23 @@ export function RutinasPanel() {
             </div>
             <div className="flex items-center gap-1.5">
               <Button
+                size="sm" variant={locked ? "default" : "outline"}
+                onClick={toggleLocked}
+                className="h-7"
+                title={locked ? "Desbloquear edición" : "Bloquear edición"}
+              >
+                {locked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+                {locked ? "Bloqueado" : "Editable"}
+              </Button>
+              <Button
                 size="sm" variant={erasing ? "default" : "outline"}
                 onClick={() => { setErasing((e) => !e); setPaintCategoryId(null); }}
                 className="h-7"
+                disabled={locked}
               >
                 <Eraser className="h-3.5 w-3.5" /> Borrador
               </Button>
-              <Button size="sm" variant="ghost" onClick={clearAll} className="h-7 text-muted-foreground">
+              <Button size="sm" variant="ghost" onClick={clearAll} className="h-7 text-muted-foreground" disabled={locked}>
                 <X className="h-3.5 w-3.5" /> Vaciar
               </Button>
               <Popover>
@@ -431,6 +478,49 @@ export function RutinasPanel() {
                       Estas líneas solo son una guía visual sobre el horario.
                     </p>
                   </div>
+                  <div className="border-t border-border/60 pt-3">
+                    <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-foreground">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" /> Rango de horas visible
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={String(visibleRange.startHour)}
+                        onValueChange={(v) =>
+                          setState((s) => ({
+                            ...s,
+                            visibleRange: { ...(s.visibleRange ?? DEFAULT_VISIBLE_RANGE), startHour: Number(v) },
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-7 flex-1 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {HOURS_0_24.map((hh) => (
+                            <SelectItem key={hh} value={String(hh)}>{hh.toString().padStart(2, "0")}:00</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className="text-xs text-muted-foreground">a</span>
+                      <Select
+                        value={String(visibleRange.endHour)}
+                        onValueChange={(v) =>
+                          setState((s) => ({
+                            ...s,
+                            visibleRange: { ...(s.visibleRange ?? DEFAULT_VISIBLE_RANGE), endHour: Number(v) },
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-7 flex-1 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {HOURS_0_24.map((hh) => (
+                            <SelectItem key={hh} value={String(hh)}>{hh.toString().padStart(2, "0")}:00</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                      Oculta las horas fuera de este rango (por ejemplo, las de sueño) para no ocupar espacio visual.
+                    </p>
+                  </div>
                 </PopoverContent>
               </Popover>
             </div>
@@ -459,7 +549,7 @@ export function RutinasPanel() {
               ))}
 
               {/* Body */}
-              {SLOTS.map((slot) => (
+              {visibleSlots.map((slot) => (
                 <FragmentRow
                   key={slot}
                   slot={slot}
@@ -470,6 +560,7 @@ export function RutinasPanel() {
                   boundaryLabel={periodNameForBoundary(slot, state.periodBoundaries ?? DEFAULT_PERIODS)}
                   showLabelAlways={!!state.showLabelsAlways}
                   labelSlots={labelSlots}
+                  locked={locked}
                 />
               ))}
             </div>
@@ -502,12 +593,17 @@ export function RutinasPanel() {
                       <TooltipTrigger asChild>
                         <div
                           className={cn(
-                            "group flex items-center gap-2 rounded-lg border p-2 transition-colors cursor-pointer",
+                            "group flex items-center gap-2 rounded-lg border p-2 transition-colors",
+                            locked ? "cursor-default opacity-70" : "cursor-pointer",
                             active
                               ? "border-primary/60 bg-primary/10 ring-1 ring-primary/40"
                               : "border-border bg-background/40 hover:border-primary/40",
                           )}
-                          onClick={() => { setPaintCategoryId((id) => (id === c.id ? null : c.id)); setErasing(false); }}
+                          onClick={() => {
+                            if (locked) return;
+                            setPaintCategoryId((id) => (id === c.id ? null : c.id));
+                            setErasing(false);
+                          }}
                         >
                           <span
                             className="h-5 w-5 shrink-0 rounded-md border border-border/60 shadow-inner"
@@ -654,7 +750,7 @@ export function RutinasPanel() {
 
 /* ---------- Single half-hour row (extracted to keep render light) ---------- */
 function FragmentRow({
-  slot, blocks, catById, onMouseDown, onMouseEnter, boundaryLabel, showLabelAlways, labelSlots,
+  slot, blocks, catById, onMouseDown, onMouseEnter, boundaryLabel, showLabelAlways, labelSlots, locked,
 }: {
   slot: number;
   blocks: Record<string, string>;
@@ -664,6 +760,7 @@ function FragmentRow({
   boundaryLabel?: string;
   showLabelAlways: boolean;
   labelSlots: Set<string>;
+  locked: boolean;
 }) {
   const label = slotLabel(slot);
   const isHourMark = slot % 2 === 0;
@@ -694,10 +791,12 @@ function FragmentRow({
             onMouseDown={() => onMouseDown(day, slot)}
             onMouseEnter={() => onMouseEnter(day, slot)}
             className={cn(
-              "group relative h-7 cursor-pointer border-r border-border/30 transition",
+              "group relative h-7 border-r border-border/30 transition",
+              locked ? "cursor-default" : "cursor-pointer",
               isHourMark ? "border-b border-b-border/50" : "border-b border-b-border/20",
-              !cat && "bg-[repeating-linear-gradient(45deg,transparent_0_4px,hsl(var(--border)/0.25)_4px_5px)] hover:bg-primary/5",
-              cat && "hover:brightness-110",
+              !cat && !locked && "bg-[repeating-linear-gradient(45deg,transparent_0_4px,hsl(var(--border)/0.25)_4px_5px)] hover:bg-primary/5",
+              !cat && locked && "bg-[repeating-linear-gradient(45deg,transparent_0_4px,hsl(var(--border)/0.25)_4px_5px)]",
+              cat && !locked && "hover:brightness-110",
             )}
             style={cat ? { background: cat.color } : undefined}
             title={cat ? `${DAYS_FULL[day]} · ${label} — ${cat.name}` : `${DAYS_FULL[day]} · ${label}`}
