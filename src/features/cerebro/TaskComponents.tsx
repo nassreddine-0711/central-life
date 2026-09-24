@@ -11,9 +11,9 @@ import { Task, CAT_COLORS, PRIO_COLORS, describeRecurrence, COMPLEXITY_LABEL } f
 import { useKnowledge } from "@/features/knowledge/KnowledgeContext";
 import { useCerebro } from "./CerebroContext";
 
-export function Section({ title, children, icon, accent, action }: { title: string; children: React.ReactNode; icon?: React.ReactNode; accent?: string; action?: React.ReactNode; }) {
+export function Section({ title, children, icon, accent, action, className }: { title: string; children: React.ReactNode; icon?: React.ReactNode; accent?: string; action?: React.ReactNode; className?: string; }) {
   return (
-    <div className="rounded-xl border bg-card/80 p-3 sm:p-4 shadow-sm backdrop-blur-sm">
+    <div className={cn("rounded-xl border bg-card/80 p-3 sm:p-4 shadow-sm backdrop-blur-sm", className)}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className={cn("flex min-w-0 items-center gap-2 text-sm font-semibold", accent)}>
           {icon}<span className="truncate">{title}</span>
@@ -223,8 +223,14 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate }: { t
       <div className="space-y-3">
         {days.map(d => {
           const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
+          const today = isToday(d);
           return (
-            <Section key={d.toISOString()} title={format(d, "EEEE d MMM", { locale: es })}>
+            <Section
+              key={d.toISOString()}
+              title={format(d, "EEEE d MMM", { locale: es })}
+              className={today ? "border-primary/60 ring-1 ring-primary/20 bg-primary/[0.03]" : undefined}
+              action={today ? <Badge className="h-5 bg-primary/15 text-[10px] text-primary hover:bg-primary/15">Hoy</Badge> : undefined}
+            >
               {list.length === 0 ? <Empty msg="Sin tareas." /> : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} columns={2} />}
             </Section>
           );

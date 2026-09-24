@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Plus, Trash2, Pencil, Check, X, Eraser, Palette, CalendarDays, Copy,
+  Plus, Trash2, Pencil, Check, X, Eraser, Palette, CalendarDays, Copy, Settings2, Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 /* ---------- Types ---------- */
@@ -23,21 +25,50 @@ interface RoutineCategory {
 interface RoutineVersion {
   id: string;
   name: string;
-  /** Map "day-hour" → categoryId  (day: 0=Lun..6=Dom, hour: 0..23) */
+  /** Map "day-slot" → categoryId  (day: 0=Lun..6=Dom, slot: 0..47, cada slot = 30 min; slot 0 = 00:00–00:30) */
   blocks: Record<string, string>;
+}
+
+/** Horas (0-23) en las que empieza cada franja del día. "Mañana" siempre empieza a las 00:00. */
+interface PeriodBoundaries {
+  middayStart: number;
+  afternoonStart: number;
+  nightStart: number;
 }
 
 interface RoutinesState {
   versions: RoutineVersion[];
   categories: RoutineCategory[];
   currentId: string;
+  periodBoundaries?: PeriodBoundaries;
+  showLabelsAlways?: boolean;
+  schemaVersion?: number;
 }
 
 /* ---------- Constants ---------- */
 const STORAGE_KEY = "cerebro.routines.v1";
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"] as const;
 const DAYS_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"] as const;
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
+/** 48 slots de media hora: slot 0 = 00:00, slot 1 = 00:30 … slot 47 = 23:30 */
+const SLOTS = Array.from({ length: 48 }, (_, i) => i);
+const DEFAULT_PERIODS: PeriodBoundaries = { middayStart: 12, afternoonStart: 14, nightStart: 21 };
+const PERIOD_LABELS: { key: keyof PeriodBoundaries; label: string }[] = [
+  { key: "middayStart", label: "Mediodía desde" },
+  { key: "afternoonStart", label: "Tarde desde" },
+  { key: "nightStart", label: "Noche desde" },
+];
+const slotLabel = (slot: number) => {
+  const hour = Math.floor(slot / 2);
+  const minute = slot % 2 === 0 ? "00" : "30";
+  return `${hour.toString().padStart(2, "0")}:${minute}`;
+};
+/** Si este slot es el inicio de una franja del día, devuelve su nombre para la línea divisoria. */
+function periodNameForBoundary(slot: number, b: PeriodBoundaries): string | undefined {
+  if (slot === b.middayStart * 2) return "Mediodía";
+  if (slot === b.afternoonStart * 2) return "Tarde";
+  if (slot === b.nightStart * 2) return "Noche";
+  return undefined;
+}
 const PALETTE = [
   "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e",
   "#10b981", "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1",
@@ -57,7 +88,26 @@ function defaultState(): RoutinesState {
       { id: uid(), name: "Descanso", color: "#a855f7", description: "Sueño, siestas o relax profundo." },
     ],
     currentId: versionId,
+    periodBoundaries: { ...DEFAULT_PERIODS },
+    showLabelsAlways: false,
+    schemaVersion: 2,
   };
+}
+
+/** Migra bloques del formato antiguo "day-hour" (0-23, una celda por hora) al nuevo
+ *  "day-slot" (0-47, media hora), duplicando cada hora pintada en sus dos mitades. */
+function migrateHourlyBlocks(blocks: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  Object.entries(blocks).forEach(([key, catId]) => {
+    const [dayStr, hourStr] = key.split("-");
+    const hour = Number(hourStr);
+    const day = Number(dayStr);
+    if (Number.isNaN(hour) || Number.isNaN(day)) return;
+    const base = hour * 2;
+    out[`${day}-${base}`] = catId;
+    out[`${day}-${base + 1}`] = catId;
+  });
+  return out;
 }
 
 function loadState(): RoutinesState {
@@ -68,6 +118,12 @@ function loadState(): RoutinesState {
     if (!parsed.versions?.length) return defaultState();
     if (!parsed.versions.find((v) => v.id === parsed.currentId)) {
       parsed.currentId = parsed.versions[0].id;
+    }
+    if (!parsed.periodBoundaries) parsed.periodBoundaries = { ...DEFAULT_PERIODS };
+    if (parsed.showLabelsAlways === undefined) parsed.showLabelsAlways = false;
+    if ((parsed.schemaVersion ?? 1) < 2) {
+      parsed.versions = parsed.versions.map((v) => ({ ...v, blocks: migrateHourlyBlocks(v.blocks) }));
+      parsed.schemaVersion = 2;
     }
     return parsed;
   } catch {
@@ -173,8 +229,8 @@ export function RutinasPanel() {
   };
 
   /* ---------- Cell interaction ---------- */
-  const applyCell = useCallback((day: number, hour: number) => {
-    const key = `${day}-${hour}`;
+  const applyCell = useCallback((day: number, slot: number) => {
+    const key = `${day}-${slot}`;
     if (erasing) {
       setVersion((v) => {
         const { [key]: _, ...rest } = v.blocks;
@@ -193,12 +249,12 @@ export function RutinasPanel() {
     });
   }, [paintCategoryId, erasing]); // setVersion is stable enough via setState
 
-  const onCellMouseDown = (day: number, hour: number) => {
+  const onCellMouseDown = (day: number, slot: number) => {
     setIsPainting(true);
-    applyCell(day, hour);
+    applyCell(day, slot);
   };
-  const onCellMouseEnter = (day: number, hour: number) => {
-    if (isPainting) applyCell(day, hour);
+  const onCellMouseEnter = (day: number, slot: number) => {
+    if (isPainting) applyCell(day, slot);
   };
 
   useEffect(() => {
@@ -295,6 +351,58 @@ export function RutinasPanel() {
               <Button size="sm" variant="ghost" onClick={clearAll} className="h-7 text-muted-foreground">
                 <X className="h-3.5 w-3.5" /> Vaciar
               </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button size="sm" variant="outline" className="h-7">
+                    <Settings2 className="h-3.5 w-3.5" /> Ajustes
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-72 space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>Mostrar nombre siempre</span>
+                    </div>
+                    <Switch
+                      checked={!!state.showLabelsAlways}
+                      onCheckedChange={(v) => setState((s) => ({ ...s, showLabelsAlways: v }))}
+                    />
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Con esto activado, el nombre de la categoría se ve siempre en cada celda,
+                    no solo al pasar el ratón.
+                  </p>
+                  <div className="border-t border-border/60 pt-3">
+                    <p className="mb-2 text-xs font-medium text-foreground">Franjas del día</p>
+                    <div className="space-y-2">
+                      {PERIOD_LABELS.map(({ key, label }) => (
+                        <div key={key} className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground">{label}</span>
+                          <Select
+                            value={String((state.periodBoundaries ?? DEFAULT_PERIODS)[key])}
+                            onValueChange={(v) =>
+                              setState((s) => ({
+                                ...s,
+                                periodBoundaries: { ...(s.periodBoundaries ?? DEFAULT_PERIODS), [key]: Number(v) },
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="h-7 w-24 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 24 }, (_, i) => i).map((hh) => (
+                                <SelectItem key={hh} value={String(hh)}>{hh.toString().padStart(2, "0")}:00</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                      La mañana siempre empieza a las 00:00. Estas líneas solo son una guía visual.
+                    </p>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
@@ -321,14 +429,16 @@ export function RutinasPanel() {
               ))}
 
               {/* Body */}
-              {HOURS.map((h) => (
+              {SLOTS.map((slot) => (
                 <FragmentRow
-                  key={h}
-                  hour={h}
+                  key={slot}
+                  slot={slot}
                   blocks={currentVersion.blocks}
                   catById={catById}
                   onMouseDown={onCellMouseDown}
                   onMouseEnter={onCellMouseEnter}
+                  boundaryLabel={periodNameForBoundary(slot, state.periodBoundaries ?? DEFAULT_PERIODS)}
+                  showLabelAlways={!!state.showLabelsAlways}
                 />
               ))}
             </div>
@@ -511,33 +621,49 @@ export function RutinasPanel() {
   );
 }
 
-/* ---------- Single hour row (extracted to keep render light) ---------- */
+/* ---------- Single half-hour row (extracted to keep render light) ---------- */
 function FragmentRow({
-  hour, blocks, catById, onMouseDown, onMouseEnter,
+  slot, blocks, catById, onMouseDown, onMouseEnter, boundaryLabel, showLabelAlways,
 }: {
-  hour: number;
+  slot: number;
   blocks: Record<string, string>;
   catById: (id: string) => RoutineCategory | undefined;
-  onMouseDown: (day: number, hour: number) => void;
-  onMouseEnter: (day: number, hour: number) => void;
+  onMouseDown: (day: number, slot: number) => void;
+  onMouseEnter: (day: number, slot: number) => void;
+  boundaryLabel?: string;
+  showLabelAlways: boolean;
 }) {
-  const label = `${hour.toString().padStart(2, "0")}:00`;
+  const label = slotLabel(slot);
+  const isHourMark = slot % 2 === 0;
+
   return (
     <>
-      <div className="sticky left-0 z-10 border-b border-r border-border/40 bg-card/95 px-2 py-1.5 text-[10px] font-mono text-muted-foreground backdrop-blur">
+      {boundaryLabel && (
+        <div className="col-span-8 flex items-center gap-2 border-t-2 border-dashed border-t-primary/30 bg-primary/[0.03] px-2 py-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-primary/70">{boundaryLabel}</span>
+          <span className="h-px flex-1 bg-primary/15" />
+        </div>
+      )}
+      <div
+        className={cn(
+          "sticky left-0 z-10 border-r border-border/40 bg-card/95 px-2 py-1 font-mono backdrop-blur",
+          isHourMark ? "border-b border-b-border/50 text-[10px] text-muted-foreground" : "border-b border-b-border/20 text-[9px] text-muted-foreground/50",
+        )}
+      >
         {label}
       </div>
       {Array.from({ length: 7 }, (_, day) => {
-        const key = `${day}-${hour}`;
+        const key = `${day}-${slot}`;
         const catId = blocks[key];
         const cat = catId ? catById(catId) : undefined;
         return (
           <div
             key={day}
-            onMouseDown={() => onMouseDown(day, hour)}
-            onMouseEnter={() => onMouseEnter(day, hour)}
+            onMouseDown={() => onMouseDown(day, slot)}
+            onMouseEnter={() => onMouseEnter(day, slot)}
             className={cn(
-              "group relative h-9 cursor-pointer border-b border-r border-border/30 transition",
+              "group relative h-7 cursor-pointer border-r border-border/30 transition",
+              isHourMark ? "border-b border-b-border/50" : "border-b border-b-border/20",
               !cat && "bg-[repeating-linear-gradient(45deg,transparent_0_4px,hsl(var(--border)/0.25)_4px_5px)] hover:bg-primary/5",
               cat && "hover:brightness-110",
             )}
@@ -545,8 +671,13 @@ function FragmentRow({
             title={cat ? `${DAYS_FULL[day]} · ${label} — ${cat.name}` : `${DAYS_FULL[day]} · ${label}`}
           >
             {cat && (
-              <span className="pointer-events-none absolute inset-0 hidden items-center justify-center text-[9px] font-semibold uppercase tracking-widest text-white/90 mix-blend-overlay group-hover:flex">
-                {cat.name.slice(0, 8)}
+              <span
+                className={cn(
+                  "pointer-events-none absolute inset-0 items-center justify-center px-0.5 text-center text-[8px] font-semibold uppercase leading-tight tracking-widest text-white/90 mix-blend-overlay",
+                  showLabelAlways ? "flex" : "hidden group-hover:flex",
+                )}
+              >
+                {cat.name.slice(0, 10)}
               </span>
             )}
           </div>
