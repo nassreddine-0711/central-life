@@ -29,8 +29,9 @@ interface RoutineVersion {
   blocks: Record<string, string>;
 }
 
-/** Horas (0-23) en las que empieza cada franja del día. "Mañana" siempre empieza a las 00:00. */
+/** Horas (0-23) en las que empieza cada franja del día. */
 interface PeriodBoundaries {
+  morningStart: number;
   middayStart: number;
   afternoonStart: number;
   nightStart: number;
@@ -51,8 +52,9 @@ const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"] as const;
 const DAYS_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"] as const;
 /** 48 slots de media hora: slot 0 = 00:00, slot 1 = 00:30 … slot 47 = 23:30 */
 const SLOTS = Array.from({ length: 48 }, (_, i) => i);
-const DEFAULT_PERIODS: PeriodBoundaries = { middayStart: 12, afternoonStart: 14, nightStart: 21 };
+const DEFAULT_PERIODS: PeriodBoundaries = { morningStart: 7, middayStart: 12, afternoonStart: 14, nightStart: 21 };
 const PERIOD_LABELS: { key: keyof PeriodBoundaries; label: string }[] = [
+  { key: "morningStart", label: "Empieza mi día desde" },
   { key: "middayStart", label: "Mediodía desde" },
   { key: "afternoonStart", label: "Tarde desde" },
   { key: "nightStart", label: "Noche desde" },
@@ -64,6 +66,7 @@ const slotLabel = (slot: number) => {
 };
 /** Si este slot es el inicio de una franja del día, devuelve su nombre para la línea divisoria. */
 function periodNameForBoundary(slot: number, b: PeriodBoundaries): string | undefined {
+  if (slot === b.morningStart * 2) return "Mi día";
   if (slot === b.middayStart * 2) return "Mediodía";
   if (slot === b.afternoonStart * 2) return "Tarde";
   if (slot === b.nightStart * 2) return "Noche";
@@ -119,7 +122,7 @@ function loadState(): RoutinesState {
     if (!parsed.versions.find((v) => v.id === parsed.currentId)) {
       parsed.currentId = parsed.versions[0].id;
     }
-    if (!parsed.periodBoundaries) parsed.periodBoundaries = { ...DEFAULT_PERIODS };
+    parsed.periodBoundaries = { ...DEFAULT_PERIODS, ...parsed.periodBoundaries };
     if (parsed.showLabelsAlways === undefined) parsed.showLabelsAlways = false;
     if ((parsed.schemaVersion ?? 1) < 2) {
       parsed.versions = parsed.versions.map((v) => ({ ...v, blocks: migrateHourlyBlocks(v.blocks) }));
@@ -275,6 +278,33 @@ export function RutinasPanel() {
   const catById = (id: string) => state.categories.find((c) => c.id === id);
   const totalBlocks = Object.keys(currentVersion.blocks).length;
 
+  /** Para cada día, agrupa slots consecutivos con la misma categoría y calcula el
+   *  slot "central" de cada grupo, que es el único donde se mostrará el nombre. */
+  const labelSlots = useMemo(() => {
+    const set = new Set<string>();
+    const blocks = currentVersion.blocks;
+    for (let day = 0; day < 7; day++) {
+      let runStart: number | null = null;
+      let runCat: string | undefined;
+      const closeRun = (endExclusive: number) => {
+        if (runStart === null || runCat === undefined) return;
+        const mid = runStart + Math.floor((endExclusive - runStart) / 2);
+        set.add(`${day}-${mid}`);
+      };
+      for (let slot = 0; slot < SLOTS.length; slot++) {
+        const cat = blocks[`${day}-${slot}`];
+        if (cat && cat === runCat) {
+          continue;
+        }
+        closeRun(slot);
+        runStart = cat ? slot : null;
+        runCat = cat;
+      }
+      closeRun(SLOTS.length);
+    }
+    return set;
+  }, [currentVersion.blocks]);
+
   /* ============================================================
      Render
   ============================================================ */
@@ -398,7 +428,7 @@ export function RutinasPanel() {
                       ))}
                     </div>
                     <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                      La mañana siempre empieza a las 00:00. Estas líneas solo son una guía visual.
+                      Estas líneas solo son una guía visual sobre el horario.
                     </p>
                   </div>
                 </PopoverContent>
@@ -439,6 +469,7 @@ export function RutinasPanel() {
                   onMouseEnter={onCellMouseEnter}
                   boundaryLabel={periodNameForBoundary(slot, state.periodBoundaries ?? DEFAULT_PERIODS)}
                   showLabelAlways={!!state.showLabelsAlways}
+                  labelSlots={labelSlots}
                 />
               ))}
             </div>
@@ -623,7 +654,7 @@ export function RutinasPanel() {
 
 /* ---------- Single half-hour row (extracted to keep render light) ---------- */
 function FragmentRow({
-  slot, blocks, catById, onMouseDown, onMouseEnter, boundaryLabel, showLabelAlways,
+  slot, blocks, catById, onMouseDown, onMouseEnter, boundaryLabel, showLabelAlways, labelSlots,
 }: {
   slot: number;
   blocks: Record<string, string>;
@@ -632,6 +663,7 @@ function FragmentRow({
   onMouseEnter: (day: number, slot: number) => void;
   boundaryLabel?: string;
   showLabelAlways: boolean;
+  labelSlots: Set<string>;
 }) {
   const label = slotLabel(slot);
   const isHourMark = slot % 2 === 0;
@@ -674,7 +706,9 @@ function FragmentRow({
               <span
                 className={cn(
                   "pointer-events-none absolute inset-0 items-center justify-center px-0.5 text-center text-[8px] font-semibold uppercase leading-tight tracking-widest text-white/90 mix-blend-overlay",
-                  showLabelAlways ? "flex" : "hidden group-hover:flex",
+                  showLabelAlways && labelSlots.has(key)
+                    ? "flex"
+                    : "hidden group-hover:flex",
                 )}
               >
                 {cat.name.slice(0, 10)}
