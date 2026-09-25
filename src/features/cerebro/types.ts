@@ -70,6 +70,43 @@ export interface Project {
 
 export const PROJECTS_KEY = "cerebro.projects.v1";
 
+/* ---------- Apuntes (carpetas + documentos + audios transcritos) ---------- */
+export interface ApunteFolder {
+  id: string;
+  name: string;
+  color?: string;
+  createdAt: string;
+}
+
+export interface ApunteDoc {
+  id: string;
+  folderId?: string | null;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ApunteAudioStatus = "uploading" | "queued" | "processing" | "completed" | "error";
+
+export interface ApunteAudio {
+  id: string;
+  title: string;
+  storagePath: string;
+  documentId?: string | null;
+  status: ApunteAudioStatus;
+  transcriptionId?: string;
+  transcript?: string;
+  summary?: string;
+  errorMessage?: string;
+  createdAt: string;
+}
+
+export const APUNTE_FOLDERS_KEY = "cerebro.apunteFolders.v1";
+export const APUNTE_DOCS_KEY = "cerebro.apunteDocs.v1";
+export const APUNTE_AUDIOS_KEY = "cerebro.apunteAudios.v1";
+export const APUNTES_AUDIO_BUCKET = "apuntes-audio";
+
 export const WEEKDAY_LABELS = ["L", "M", "X", "J", "V", "S", "D"] as const;
 export const WEEKDAY_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"] as const;
 

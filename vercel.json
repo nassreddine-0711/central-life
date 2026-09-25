@@ -1,3 +1,7 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
+  "functions": {
+    "api/apuntes-transcribe-start.ts": { "maxDuration": 30 },
+    "api/apuntes-transcribe-status.ts": { "maxDuration": 30 }
+  }
 }
