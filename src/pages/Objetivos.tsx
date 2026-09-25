@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Target, Plus, Calendar, Sparkles, Trash2, Check, X,
-  Mountain, Flag, ListChecks, ImageIcon, PartyPopper, ChevronRight, ChevronDown, Info, History, Pencil, Settings2, Route, MoreVertical
+  Mountain, Flag, ListChecks, ImageIcon, PartyPopper, ChevronRight, ChevronDown, Info, History, Pencil, Settings2
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -661,10 +661,6 @@ export default function Objetivos() {
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  
-  const [expandedTimelineId, setExpandedTimelineId] = useState<string | null>(null);
-  const timelineRef = useRef<HTMLDivElement>(null);
-  const [arrows, setArrows] = useState<{ id: string, path: string, color: string, level: number }[]>([]);
 
   const { addProject, updateProject, projectByGoalId } = useCerebro();
 
@@ -739,135 +735,6 @@ export default function Objetivos() {
   const orphanObjectives = goals.filter((g) => g.level === "objective" && !g.parentId);
   const orphanMilestones = goals.filter((g) => g.level === "milestone" && !g.parentId);
 
-  // Lógica inteligente para heredar el LADO de la línea temporal
-  const timelineSides = useMemo(() => {
-    const sides: Record<string, "left" | "right"> = {};
-    const sortedDreams = goals.filter(g => g.level === "dream").sort((a,b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
-    
-    sortedDreams.forEach((d, i) => { sides[d.id] = i % 2 === 0 ? "left" : "right"; });
-    goals.forEach(g => { if (g.level === "objective" && g.parentId) sides[g.id] = sides[g.parentId] || "right"; });
-    goals.forEach(g => {
-      if (g.level === "milestone" && g.parentId) {
-        const obj = goals.find(x => x.id === g.parentId);
-        if (obj && obj.parentId) sides[g.id] = sides[obj.parentId] || "right";
-      }
-    });
-    return sides;
-  }, [goals]);
-
-  // Generador de la Línea Temporal (Solo Sueños y Objetivos)
-  const timelineItems = useMemo(() => {
-    if (!config.birthDate) return [];
-    const birth = new Date(config.birthDate);
-    const items: any[] = [];
-    
-    // Filtrar objetivos para dejar solo sueños y objetivos tácticos (excluyendo hitos)
-    const filteredGoals = goals.filter(g => g.level === "dream" || g.level === "objective");
-
-    filteredGoals.forEach(g => {
-      const d = new Date(g.deadline);
-      let age = d.getFullYear() - birth.getFullYear();
-      if (d.getMonth() < birth.getMonth() || (d.getMonth() === birth.getMonth() && d.getDate() < birth.getDate())) age--;
-
-      let color = g.color;
-      let pTitle = null;
-      if (g.parentId) {
-        const p = goals.find(x => x.id === g.parentId);
-        if (p) {
-          pTitle = p.title;
-          color = color || p.color;
-          if (p.parentId) {
-            const gp = goals.find(x => x.id === p.parentId);
-            if (gp) { color = color || gp.color; pTitle = p.title; } 
-          }
-        }
-      }
-      color = color || "hsl(var(--primary))";
-      items.push({ 
-        ...g, 
-        type: g.level, // Mapeado del tipo explícito para activar correctamente las clases de tamaño CSS
-        dateObj: d, 
-        age, 
-        year: d.getFullYear(), 
-        color, 
-        parentTitle: pTitle, 
-        icon: g.level === "dream" ? Mountain : Flag,
-        side: timelineSides[g.id] || "right"
-      });
-    });
-
-    return items.sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime());
-  }, [goals, config.birthDate, timelineSides]);
-
-  // Gestor inteligente de líneas SVG (Circuito Externo y a 90 grados)
-  useEffect(() => {
-    const updateArrows = () => {
-      if (!timelineRef.current) return;
-      const rect = timelineRef.current.getBoundingClientRect();
-      const isMobile = window.innerWidth < 768;
-      const centerLineX = rect.left + (isMobile ? 24 : rect.width / 2);
-      
-      // Encontrar los bordes extremos donde dibujar los carriles
-      let maxR = centerLineX;
-      let minL = centerLineX;
-
-      timelineRef.current.querySelectorAll('.timeline-card').forEach(el => {
-         const r = el.getBoundingClientRect();
-         const isCardRight = isMobile ? true : r.left > centerLineX - 50;
-         if (isCardRight) {
-             if (r.right > maxR) maxR = r.right;
-         } else {
-             if (r.left < minL) minL = r.left;
-         }
-      });
-
-      const extremeRight = maxR - rect.left;
-      const extremeLeft = minL - rect.left;
-
-      const newArrows: any[] = [];
-      
-      timelineItems.forEach((item) => {
-        if (item.parentId && item.type !== "birth") {
-          const pCard = document.getElementById(`tcard-${item.parentId}`);
-          const cCard = document.getElementById(`tcard-${item.id}`);
-          
-          if (pCard && cCard) {
-            const pR = pCard.getBoundingClientRect();
-            const cR = cCard.getBoundingClientRect();
-            
-            const isRight = isMobile ? true : cR.left > centerLineX - 50; 
-            
-            // Jerarquía de las líneas
-            const level = item.type === "objective" ? 1 : 2;
-            const offsetDist = level === 1 ? 50 : 25; // Los sueños viajan más lejos que los hitos
-            
-            const startX = isRight ? pR.right - rect.left : pR.left - rect.left;
-            const startY = pR.top - rect.top + pR.height / 2;
-            const endX = isRight ? cR.right - rect.left : cR.left - rect.left;
-            const endY = cR.top - rect.top + cR.height / 2;
-            
-            const midX = isRight ? extremeRight + offsetDist : extremeLeft - offsetDist;
-            
-            // Path SVG recto y con ángulos de 90°
-            const path = `M ${startX} ${startY} L ${midX} ${startY} L ${midX} ${endY} L ${endX} ${endY}`;
-            
-            newArrows.push({ id: `${item.parentId}-${item.id}`, color: item.color, path, level });
-          }
-        }
-      });
-      setArrows(newArrows);
-    };
-
-    updateArrows();
-    const observer = new ResizeObserver(updateArrows);
-    if (timelineRef.current) observer.observe(timelineRef.current);
-    window.addEventListener('resize', updateArrows);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', updateArrows);
-    };
-  }, [timelineItems, expandedTimelineId]);
-
   const addGoal = (g: Goal) => {
     setGoals((prev) => [g, ...prev]);
     if (g.parentId) setExpanded((e) => ({ ...e, [g.parentId!]: true }));
@@ -920,12 +787,9 @@ export default function Objetivos() {
           </button>
         </motion.div>
 
-        <Tabs defaultValue="timeline" className="mt-2">
+        <Tabs defaultValue="vision" className="mt-2">
           <div className="flex justify-center w-full mb-6 overflow-x-auto pb-2">
             <TabsList className="inline-flex h-auto items-center gap-1 rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
-              <TabsTrigger value="timeline" className="relative rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-widest text-neutral-600 transition data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-glow">
-                <Route className="mr-2 inline h-3.5 w-3.5" /> Línea Temporal
-              </TabsTrigger>
               <TabsTrigger value="vision" className="relative rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-widest text-neutral-600 transition data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-glow">
                 <Target className="mr-2 inline h-3.5 w-3.5" /> Visión Actual
               </TabsTrigger>
@@ -934,136 +798,6 @@ export default function Objetivos() {
               </TabsTrigger>
             </TabsList>
           </div>
-
-          {/* ==========================================
-              NUEVA PESTAÑA: LÍNEA TEMPORAL
-          ========================================== */}
-          <TabsContent value="timeline" className="mt-6 focus-visible:ring-0">
-            {!config.birthDate ? (
-              <Empty label="Configura tu destino y fecha de nacimiento para generar la Línea Temporal." actionLabel="Configurar" onAction={() => setShowConfig(true)} />
-            ) : (
-              <div className="relative mx-auto w-full max-w-[1200px] px-2 sm:px-10 md:px-24 py-10" ref={timelineRef}>
-                
-                {/* SVG Overlay para dibujar las flechas a 90 grados por fuera */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-visible">
-                  {arrows.map(a => (
-                    <path 
-                      key={a.id} d={a.path} fill="none" stroke={a.color} 
-                      strokeWidth={a.level === 1 ? "4" : "2"} 
-                      opacity={a.level === 1 ? "0.9" : "0.5"} 
-                    />
-                  ))}
-                </svg>
-
-                {/* Eje central vertical, grueso y visible */}
-                <div className="absolute bottom-0 left-6 top-0 w-[6px] bg-border md:left-1/2 md:-translate-x-1/2 rounded-full" />
-
-                {timelineItems.map((item) => {
-                  const isLeft = item.side === "left";
-                  const typeLabel = item.type === "dream" ? "SUEÑO" : "OBJETIVO";
-
-                  // Lógica de TAMAÑOS jerárquica clara para Sueño vs Objetivo
-                  let maxWidthClass = "max-w-md w-full";
-                  let paddingClass = "p-4 sm:p-5";
-                  let titleSize = "text-sm sm:text-base";
-
-                  if (item.type === "dream") {
-                    maxWidthClass = "max-w-2xl w-full"; 
-                    paddingClass = "p-6 sm:p-8 bg-gradient-to-br from-card via-card to-background/30";
-                    titleSize = "text-xl sm:text-2xl font-extrabold tracking-tight text-foreground";
-                  } else if (item.type === "objective") {
-                    maxWidthClass = "max-w-sm w-full"; // Tarjeta de objetivos sustancialmente menos ancha
-                    paddingClass = "p-4 sm:p-5";
-                    titleSize = "text-base sm:text-lg font-bold text-foreground/90";
-                  }
-
-                  const isExpanded = expandedTimelineId === item.id;
-
-                  return (
-                    <div key={item.id} className={cn("relative mb-14 flex w-full items-center z-10", isLeft ? "md:flex-row-reverse" : "flex-row")}>
-                      
-                      {/* Nodo central (Punto de la línea) */}
-                      <div className="absolute left-6 md:left-1/2 flex -translate-x-1/2 flex-col items-center justify-center bg-background py-3 transition-transform hover:scale-110 z-20">
-                        <span className="font-mono text-xs font-bold text-foreground leading-none">{item.age}a</span>
-                        <div className="my-2 h-5 w-5 md:h-6 md:w-6 rounded-full border-[6px] bg-background shadow-md" style={{ borderColor: item.color }} />
-                        <span className="font-mono text-[10px] text-muted-foreground leading-none">{item.year}</span>
-                      </div>
-
-                      {/* Tarjeta Wrapper */}
-                      <div className={cn("w-full pl-20 md:w-1/2 flex", isLeft ? "md:pl-0 md:pr-14 md:justify-end text-left md:text-right" : "md:pl-14 justify-start text-left")}>
-                        <motion.div 
-                          id={`tcard-${item.id}`}
-                          className={cn(
-                            "timeline-card inline-block rounded-2xl bg-card/90 backdrop-blur-md cursor-pointer w-full transition-colors", 
-                            maxWidthClass, 
-                            paddingClass
-                          )}
-                          style={{ 
-                            // Ambos tipos de tarjetas usan ahora el color seleccionado perimetralmente
-                            borderWidth: item.type === "dream" ? "4px" : "1px",
-                            borderColor: item.color,
-                            borderStyle: "solid",
-                            boxShadow: item.type === "dream"
-                              ? `0 12px 35px -10px ${item.color}40, 0 0 15px -4px ${item.color}25`
-                              : "0 4px 15px -3px rgba(0, 0, 0, 0.05)"
-                          }}
-                          whileHover={item.type === "dream" ? {
-                            y: -6,
-                            boxShadow: `0 25px 50px -12px ${item.color}70, 0 0 30px 2px ${item.color}40`,
-                            borderColor: item.color
-                          } : {
-                            y: -4,
-                            boxShadow: "0 12px 24px -6px rgba(0, 0, 0, 0.12)",
-                            borderColor: item.color // Conserva su propio color delimitado al hacer hover
-                          }}
-                          transition={{ duration: 0.25, ease: "easeInOut" }}
-                          onClick={() => setExpandedTimelineId(isExpanded ? null : item.id)}
-                        >
-                          <div className={cn("flex flex-wrap items-center gap-2 mb-4", isLeft ? "md:justify-end" : "justify-start")}>
-                            <span 
-                              className={cn(
-                                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest shadow-sm",
-                                item.type === "dream" ? "animate-pulse" : ""
-                              )} 
-                              style={{ backgroundColor: `${item.color}15`, borderColor: `${item.color}50`, color: item.color }}
-                            >
-                              <item.icon className="h-3.5 w-3.5" /> {typeLabel}
-                            </span>
-                            {item.parentTitle && item.type !== 'birth' && (
-                              <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                                 DE: <span className="text-foreground/80 truncate max-w-[150px]">{item.parentTitle}</span>
-                              </span>
-                            )}
-                          </div>
-                          
-                          <h4 className={cn("font-bold text-foreground leading-tight", titleSize)}>{item.title}</h4>
-                          {item.type !== "birth" && <p className="font-mono text-[10px] text-muted-foreground mt-2">{item.dateObj.toLocaleDateString("es-ES")}</p>}
-                          
-                          <AnimatePresence>
-                            {isExpanded && item.type !== "birth" && (
-                              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className={cn("overflow-hidden", isLeft ? "md:text-right" : "text-left")}>
-                                <div className="mt-4 border-t border-border/50 pt-4">
-                                  {item.why && <p className="text-sm text-foreground/80 mb-4 whitespace-pre-wrap">{item.why}</p>}
-                                  <GoalCountdown deadline={item.deadline} />
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </motion.div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div className="relative mt-12 flex w-full justify-start md:justify-center z-10">
-                  <div className="absolute left-6 flex -translate-x-1/2 flex-col items-center bg-background md:left-1/2">
-                    <div className="h-16 w-2 border-l-[6px] border-dashed border-muted-foreground/30" />
-                    <MoreVertical className="mt-3 h-8 w-8 text-muted-foreground/30" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </TabsContent>
 
           {/* ==========================================
               PESTAÑA: VISIÓN ACTUAL
