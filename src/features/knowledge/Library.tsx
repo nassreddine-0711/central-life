@@ -27,7 +27,7 @@ function CoverPlaceholder({ title }: { title: string }) {
 export function Library() {
   const { books, addBook, updateBook, removeBook, setFeatured } = useKnowledge();
   const { openNoteSheet } = useCerebro();
-  const [tab, setTab] = useState<BookStatus>("reading");
+  const [tab, setTab] = useState<BookStatus>("wishlist");
   const [showForm, setShowForm] = useState(false);
   const [searching, setSearching] = useState(false);
   const [editing, setEditing] = useState<Book | null>(null);

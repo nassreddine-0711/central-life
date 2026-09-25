@@ -40,7 +40,7 @@ export function Audiovisual() {
   const { items, addItem, updateItem, removeItem } = useAudiovisual();
   const { openNoteSheet } = useCerebro();
 
-  const [tab, setTab] = useState<MediaStatus>("watching");
+  const [tab, setTab] = useState<MediaStatus>("watchlist");
   const [typeFilters, setTypeFilters] = useState<Set<MediaType>>(new Set());
   const [editing, setEditing] = useState<MediaItem | null>(null);
 
