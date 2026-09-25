@@ -1,23 +1,12 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Settings2, Plus, Trash2, TrendingUp, TrendingDown, Minus,
-  HeartPulse, Wallet, Brain, FolderKanban, Plane, Sparkles, Gauge,
-} from "lucide-react";
+import { Settings2, Plus, Trash2, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useFlywheel, ComputedSpoke, SpokeType } from "./FlywheelContext";
-
-const SPOKE_ICON: Record<SpokeType, typeof HeartPulse> = {
-  health: HeartPulse,
-  finance: Wallet,
-  secondBrain: Brain,
-  projects: FolderKanban,
-  trips: Plane,
-  manual: Sparkles,
-};
+import { Flywheel3D } from "./FlywheelMesh";
 
 const SPOKE_ROUTE: Partial<Record<SpokeType, string>> = {
   health: "/salud",
@@ -27,27 +16,6 @@ const SPOKE_ROUTE: Partial<Record<SpokeType, string>> = {
   trips: "/viajes",
 };
 
-function spinDuration(pct: number) {
-  // pct alto → giro rápido (pocos segundos). pct bajo → giro casi detenido.
-  return `${Math.max(2.5, 30 - (pct / 100) * 25)}s`;
-}
-
-function CircularGauge({ pct, size, strokeWidth, color }: { pct: number; size: number; strokeWidth: number; color: string }) {
-  const r = (size - strokeWidth) / 2;
-  const c = 2 * Math.PI * r;
-  const offset = c - (Math.max(0, Math.min(100, pct)) / 100) * c;
-  return (
-    <svg width={size} height={size} className="-rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={r} strokeWidth={strokeWidth} fill="none" className="stroke-muted/25" />
-      <circle
-        cx={size / 2} cy={size / 2} r={r} strokeWidth={strokeWidth} fill="none"
-        stroke={color} strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
-        style={{ transition: "stroke-dashoffset 1s ease" }}
-      />
-    </svg>
-  );
-}
-
 function TrendIcon({ trend }: { trend: "up" | "down" | "flat" }) {
   if (trend === "up") return <TrendingUp className="h-3 w-3 text-emerald-500" />;
   if (trend === "down") return <TrendingDown className="h-3 w-3 text-rose-500" />;
@@ -56,28 +24,21 @@ function TrendIcon({ trend }: { trend: "up" | "down" | "flat" }) {
 
 function SpokeWheel({ spoke }: { spoke: ComputedSpoke }) {
   const navigate = useNavigate();
-  const Icon = SPOKE_ICON[spoke.type];
   const route = SPOKE_ROUTE[spoke.type];
   return (
     <button
       onClick={() => route && navigate(route)}
       className={cn(
-        "group flex flex-col items-center gap-2 rounded-2xl border border-border/60 bg-card/70 p-3 shadow-sm backdrop-blur-sm transition",
-        route ? "cursor-pointer hover:border-primary/40 hover:shadow-md" : "cursor-default",
+        "group flex flex-col items-center gap-1.5 rounded-xl border border-border/50 bg-gradient-to-b from-card/80 to-background/60 p-3 shadow-inner transition",
+        route ? "cursor-pointer hover:border-primary/30 hover:shadow-md" : "cursor-default",
       )}
     >
-      <div className="relative grid place-items-center">
-        <CircularGauge pct={spoke.pct} size={84} strokeWidth={7} color={spoke.color} />
-        <div
-          className="absolute inset-0 grid place-items-center"
-          style={{ animation: `flywheel-spin ${spinDuration(spoke.pct)} linear infinite` }}
-        >
-          <Icon className="h-6 w-6" style={{ color: spoke.color }} strokeWidth={1.75} />
-        </div>
-      </div>
+      <Suspense fallback={<div style={{ width: 84, height: 84 }} />}>
+        <Flywheel3D pct={spoke.pct} accent={spoke.color} size={84} />
+      </Suspense>
       <div className="text-center">
-        <p className="text-xs font-semibold text-foreground">{spoke.label}</p>
-        <p className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground">{spoke.label}</p>
+        <p className="flex items-center justify-center gap-1 font-mono text-[11px] text-muted-foreground">
           {spoke.pct}% <TrendIcon trend={spoke.trend} />
         </p>
       </div>
@@ -94,22 +55,15 @@ export function FlywheelView() {
 
   return (
     <div className="space-y-6">
-      <style>{"@keyframes flywheel-spin { to { transform: rotate(360deg); } }"}</style>
       {/* Volante grande */}
-      <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/60 bg-card/70 p-8 shadow-sm backdrop-blur-sm">
-        <div className="relative grid place-items-center">
-          <CircularGauge pct={overallPct} size={220} strokeWidth={16} color="hsl(var(--primary))" />
-          <div
-            className="absolute inset-0 grid place-items-center"
-            style={{ animation: `flywheel-spin ${spinDuration(overallPct)} linear infinite` }}
-          >
-            <Gauge className="h-16 w-16 text-primary" strokeWidth={1.25} />
-          </div>
-        </div>
+      <div className="flex flex-col items-center gap-2 rounded-2xl border border-border/60 bg-gradient-to-b from-card/90 to-background/70 p-8 shadow-inner">
+        <Suspense fallback={<div style={{ width: 220, height: 220 }} />}>
+          <Flywheel3D pct={overallPct} accent="hsl(var(--primary))" size={220} />
+        </Suspense>
         <div className="text-center">
-          <p className="text-3xl font-bold text-foreground">{overallPct}%</p>
-          <p className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
-            Momentum de "Mi vida" <TrendIcon trend={overallTrend} />
+          <p className="font-mono text-4xl font-semibold tabular-nums text-foreground">{overallPct}<span className="text-xl text-muted-foreground">%</span></p>
+          <p className="mt-0.5 flex items-center justify-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+            Momentum · "Mi vida" <TrendIcon trend={overallTrend} />
           </p>
         </div>
       </div>
