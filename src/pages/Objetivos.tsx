@@ -9,6 +9,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { VersionsModule } from "@/features/versions/VersionsModule";
+import { useCerebro } from "@/features/cerebro/CerebroContext";
 import { cn } from "@/lib/utils";
 
 /* ============================================================
@@ -27,6 +28,8 @@ interface Goal {
   progress?: number;
   color?: string;
   createdAt: string;
+  /** Si está marcado, aparece también como Proyecto (Kanban) en Second Brain. */
+  isProject?: boolean;
 }
 
 interface RoadmapConfig {
@@ -445,6 +448,7 @@ function CreateGoalModal({
   const [image, setImage] = useState<string | undefined>(editing?.image);
   const [progress, setProgress] = useState<number>(editing?.progress ?? 0);
   const [color, setColor] = useState<string>(editing?.color ?? PRESET_COLORS[0]);
+  const [isProject, setIsProject] = useState<boolean>(editing?.isProject ?? false);
 
   const handleFile = (f: File) => {
     const r = new FileReader();
@@ -459,6 +463,7 @@ function CreateGoalModal({
         ...editing,
         level, title, why, deadline, image, color: level === "dream" ? color : editing.color,
         progress: level === "objective" ? Math.max(0, Math.min(100, progress)) : editing.progress,
+        isProject: level === "dream" ? undefined : isProject,
       });
     } else {
       onCreate({
@@ -467,6 +472,7 @@ function CreateGoalModal({
         parentId: ctx.parentId ?? null,
         progress: 0, done: false,
         createdAt: new Date().toISOString(),
+        isProject: level === "dream" ? undefined : isProject,
       });
     }
     onClose();
@@ -547,6 +553,21 @@ function CreateGoalModal({
               <label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Progreso: {progress}%</label>
               <input type="range" min={0} max={100} value={progress} onChange={(e) => setProgress(Number(e.target.value))} className="w-full mt-1" />
             </div>
+          )}
+
+          {(level === "objective" || level === "milestone") && (
+            <label className="flex cursor-pointer items-center justify-between gap-2 rounded-xl border border-dashed border-border bg-card px-4 py-3 text-sm text-foreground">
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <ListChecks className="h-4 w-4" />
+                Marcar como proyecto <span className="text-[10px] normal-case text-muted-foreground/70">(aparece en Proyectos con su Kanban)</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={isProject}
+                onChange={(e) => setIsProject(e.target.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+            </label>
           )}
         </div>
 
@@ -645,6 +666,23 @@ export default function Objetivos() {
   const timelineRef = useRef<HTMLDivElement>(null);
   const [arrows, setArrows] = useState<{ id: string, path: string, color: string, level: number }[]>([]);
 
+  const { addProject, updateProject, projectByGoalId } = useCerebro();
+
+  const syncProjectForGoal = (g: Goal) => {
+    const existing = projectByGoalId(g.id);
+    if (g.isProject) {
+      if (existing) {
+        if (existing.archived || existing.title !== g.title) {
+          updateProject(existing.id, { archived: false, title: g.title });
+        }
+      } else {
+        addProject({ title: g.title, linkedGoalId: g.id });
+      }
+    } else if (existing && !existing.archived) {
+      updateProject(existing.id, { archived: true });
+    }
+  };
+
   const openEdit = (g: Goal) => {
     const parent = g.parentId ? goals.find((x) => x.id === g.parentId) : null;
     setEditingGoal(g);
@@ -652,6 +690,7 @@ export default function Objetivos() {
   };
   const updateGoal = (updated: Goal) => {
     setGoals((prev) => prev.map((g) => g.id === updated.id ? updated : g));
+    syncProjectForGoal(updated);
   };
 
   useEffect(() => { localStorage.setItem(LS_GOALS, JSON.stringify(goals)); }, [goals]);
@@ -832,21 +871,24 @@ export default function Objetivos() {
   const addGoal = (g: Goal) => {
     setGoals((prev) => [g, ...prev]);
     if (g.parentId) setExpanded((e) => ({ ...e, [g.parentId!]: true }));
+    syncProjectForGoal(g);
   };
   const delGoal = (id: string) => {
-    setGoals((prev) => {
-      const toDelete = new Set<string>([id]);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        for (const g of prev) {
-          if (g.parentId && toDelete.has(g.parentId) && !toDelete.has(g.id)) {
-            toDelete.add(g.id); grew = true;
-          }
+    const toDelete = new Set<string>([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const g of goals) {
+        if (g.parentId && toDelete.has(g.parentId) && !toDelete.has(g.id)) {
+          toDelete.add(g.id); grew = true;
         }
       }
-      return prev.filter((g) => !toDelete.has(g.id));
+    }
+    toDelete.forEach((gid) => {
+      const p = projectByGoalId(gid);
+      if (p && !p.archived) updateProject(p.id, { archived: true });
     });
+    setGoals((prev) => prev.filter((g) => !toDelete.has(g.id)));
   };
   const toggleGoal = (id: string) => setGoals((prev) => prev.map((g) => g.id === id ? { ...g, done: !g.done } : g));
   const toggleExpand = (id: string) => setExpanded((e) => ({ ...e, [id]: !e[id] }));

@@ -42,7 +42,33 @@ export interface Task {
   linkedNoteId?: string;
   linkedMilestoneId?: string;
   recurrence?: Recurrence;
+  /** Si pertenece a un Proyecto (Kanban), id del proyecto y columna actual. */
+  projectId?: string;
+  stage?: ProjectStage;
 }
+
+/* ---------- Proyectos (Kanban) ---------- */
+export type ProjectStage = "backlog" | "doing" | "blocked" | "done";
+
+export const PROJECT_STAGES: { key: ProjectStage; label: string }[] = [
+  { key: "backlog", label: "Por hacer" },
+  { key: "doing", label: "En curso" },
+  { key: "blocked", label: "Bloqueado" },
+  { key: "done", label: "Hecho" },
+];
+
+export interface Project {
+  id: string;
+  title: string;
+  description?: string;
+  color?: string;
+  /** Id de un Goal (RoadMap) marcado como proyecto, si viene de ahí. */
+  linkedGoalId?: string;
+  archived?: boolean;
+  createdAt: string;
+}
+
+export const PROJECTS_KEY = "cerebro.projects.v1";
 
 export const WEEKDAY_LABELS = ["L", "M", "X", "J", "V", "S", "D"] as const;
 export const WEEKDAY_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"] as const;

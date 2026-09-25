@@ -3,8 +3,8 @@ import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 import { toast } from "sonner";
 import { subMonths, parseISO } from "date-fns";
 import {
-  Task, Note, LinkedRef, Category, Priority,
-  TASKS_KEY, NOTES_KEY, NOTE_CATS_KEY, DEFAULT_NOTE_CAT, uid, load,
+  Task, Note, LinkedRef, Category, Priority, Project, ProjectStage,
+  TASKS_KEY, NOTES_KEY, NOTE_CATS_KEY, PROJECTS_KEY, DEFAULT_NOTE_CAT, uid, load,
   nextRecurrence,
 } from "./types";
 
@@ -12,6 +12,7 @@ interface CerebroCtx {
   tasks: Task[];
   notes: Note[];
   noteCats: string[];
+  projects: Project[];
   fadingIds: Set<string>;
 
   addTask: (partial: Partial<Task> & { title: string }) => Task;
@@ -25,6 +26,15 @@ interface CerebroCtx {
 
   addNoteCategory: (name: string) => void;
   deleteNoteCategory: (name: string) => void;
+
+  // Proyectos (Kanban)
+  addProject: (partial: Partial<Project> & { title: string }) => Project;
+  updateProject: (id: string, patch: Partial<Project>) => void;
+  delProject: (id: string) => void;
+  projectTasks: (projectId: string) => Task[];
+  projectProgress: (projectId: string) => { done: number; total: number; pct: number };
+  moveTaskStage: (taskId: string, stage: ProjectStage) => void;
+  projectByGoalId: (goalId: string) => Project | undefined;
 
   // Cross-section UI hooks
   openNoteSheet: (opts?: { linkedTo?: LinkedRef; defaultCategory?: string }) => void;
@@ -69,6 +79,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     load<Note[]>(NOTES_KEY, []).map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))
   );
   const [noteCats, setNoteCats] = useState<string[]>(() => load(NOTE_CATS_KEY, [DEFAULT_NOTE_CAT]));
+  const [projects, setProjects] = useState<Project[]>(() => load(PROJECTS_KEY, []));
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
 
   const [noteSheetState, setNoteSheetState] = useState<{ open: boolean; linkedTo?: LinkedRef; defaultCategory?: string }>({ open: false });
@@ -89,13 +100,16 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useEffect(() => { saveLocal(TASKS_KEY, filterOldCompletedTasks(tasks), "las tareas"); }, [tasks, saveLocal]);
   useEffect(() => { saveLocal(NOTES_KEY, notes, "las notas"); }, [notes, saveLocal]);
   useEffect(() => { saveLocal(NOTE_CATS_KEY, noteCats, "las categorías de notas"); }, [noteCats, saveLocal]);
+  useEffect(() => { saveLocal(PROJECTS_KEY, projects, "los proyectos"); }, [projects, saveLocal]);
 
   const setTasksCb = useCallback((v: Task[]) => setTasks(filterOldCompletedTasks(v)), []);
   const setNotesCb = useCallback((v: Note[]) => setNotes(v.map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))), []);
   const setNoteCatsCb = useCallback((v: string[]) => setNoteCats(v), []);
+  const setProjectsCb = useCallback((v: Project[]) => setProjects(v), []);
   useSupabaseSync("cerebro_tasks", tasks, setTasksCb);
   useSupabaseSync("cerebro_notes", notes, setNotesCb);
   useSupabaseSync("cerebro_notecats", noteCats, setNoteCatsCb);
+  useSupabaseSync("cerebro_projects", projects, setProjectsCb);
 
   const addTask: CerebroCtx["addTask"] = useCallback((partial) => {
     const t: Task = {
@@ -107,11 +121,13 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       priority: partial.priority ?? "med",
       date: partial.date,
       done: false,
-      inbox: partial.inbox ?? true,
+      inbox: partial.inbox ?? (partial.projectId ? false : true),
       createdAt: new Date().toISOString(),
       linkedNoteId: partial.linkedNoteId,
       linkedMilestoneId: partial.linkedMilestoneId,
       recurrence: partial.recurrence,
+      projectId: partial.projectId,
+      stage: partial.projectId ? (partial.stage ?? "backlog") : undefined,
     };
     setTasks(prev => [t, ...prev]);
     return t;
@@ -185,6 +201,46 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     toast.success("Tarea creada en Inbox", { description: note.title });
   }, [addTask]);
 
+  /* ---------- Proyectos (Kanban) ---------- */
+  const addProject: CerebroCtx["addProject"] = useCallback((partial) => {
+    const p: Project = {
+      id: uid(),
+      title: partial.title,
+      description: partial.description,
+      color: partial.color,
+      linkedGoalId: partial.linkedGoalId,
+      archived: false,
+      createdAt: new Date().toISOString(),
+    };
+    setProjects(prev => [p, ...prev]);
+    return p;
+  }, []);
+
+  const updateProject = useCallback((id: string, patch: Partial<Project>) => {
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+  }, []);
+
+  const delProject = useCallback((id: string) => {
+    if (!confirm("¿Eliminar este proyecto? Las tareas que tenga se quedarán sin proyecto.")) return;
+    setProjects(prev => prev.filter(p => p.id !== id));
+    setTasks(prev => prev.map(t => t.projectId === id ? { ...t, projectId: undefined, stage: undefined } : t));
+  }, []);
+
+  const projectTasks = useCallback((projectId: string) => tasks.filter(t => t.projectId === projectId), [tasks]);
+
+  const projectProgress = useCallback((projectId: string) => {
+    const list = tasks.filter(t => t.projectId === projectId);
+    const total = list.length;
+    const done = list.filter(t => t.stage === "done").length;
+    return { done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
+  }, [tasks]);
+
+  const moveTaskStage = useCallback((taskId: string, stage: ProjectStage) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stage, done: stage === "done" ? true : t.done } : t));
+  }, []);
+
+  const projectByGoalId = useCallback((goalId: string) => projects.find(p => p.linkedGoalId === goalId), [projects]);
+
   const tasksByMilestone = useCallback((id: string) => tasks.filter(t => t.linkedMilestoneId === id), [tasks]);
   const notesByMilestone = useCallback((id: string) => notes.filter(n => n.linkedTo?.kind === "milestone" && n.linkedTo.id === id), [notes]);
   const milestoneProgress = useCallback((id: string) => {
@@ -195,9 +251,10 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, [tasks]);
 
   const value = useMemo<CerebroCtx>(() => ({
-    tasks, notes, noteCats, fadingIds,
+    tasks, notes, noteCats, projects, fadingIds,
     addTask, toggleTask, delTask, updateTask,
     addNote, updateNote, delNote, addNoteCategory, deleteNoteCategory,
+    addProject, updateProject, delProject, projectTasks, projectProgress, moveTaskStage, projectByGoalId,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     _noteSheetState: noteSheetState,
@@ -207,9 +264,10 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     _quickOpen: quickOpen,
     _setQuickOpen: setQuickOpen,
   }), [
-    tasks, notes, noteCats, fadingIds,
+    tasks, notes, noteCats, projects, fadingIds,
     addTask, toggleTask, delTask, updateTask,
     addNote, updateNote, delNote, addNoteCategory, deleteNoteCategory,
+    addProject, updateProject, delProject, projectTasks, projectProgress, moveTaskStage, projectByGoalId,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     noteSheetState, taskDialogState, quickOpen,

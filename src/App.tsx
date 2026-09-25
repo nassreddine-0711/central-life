@@ -12,12 +12,14 @@ import { TravelProvider } from "@/features/travel/TravelContext";
 import { KnowledgeProvider } from "@/features/knowledge/KnowledgeContext";
 import { AudiovisualProvider } from "@/features/knowledge/AudiovisualContext";
 import { CerebroProvider } from "@/features/cerebro/CerebroContext";
+import { FlywheelProvider } from "@/features/flywheel/FlywheelContext";
 import Login from "./pages/Login";
 import Salud from "./pages/Salud.tsx";
 import Viajes from "./pages/Viajes.tsx";
 import Finanzas from "./pages/Finanzas.tsx";
 import Objetivos from "./pages/Objetivos.tsx";
 import Cerebro from "./pages/Cerebro.tsx";
+import Panorama from "./pages/Panorama.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { Loader2 } from "lucide-react";
 
@@ -43,24 +45,27 @@ function AppRoutes() {
           <KnowledgeProvider>
             <AudiovisualProvider>
               <CerebroProvider>
-                <TooltipProvider>
-                  <Toaster />
-                  <Sonner />
-                  <BrowserRouter>
-                    <Routes>
-                      <Route element={<AppLayout />}>
-                        <Route path="/" element={<Navigate to="/objetivos" replace />} />
-                        <Route path="/salud" element={<Salud />} />
-                        <Route path="/conocimiento" element={<Navigate to="/cerebro" replace />} />
-                        <Route path="/viajes" element={<Viajes />} />
-                        <Route path="/finanzas" element={<Finanzas />} />
-                        <Route path="/objetivos" element={<Objetivos />} />
-                        <Route path="/cerebro" element={<Cerebro />} />
-                      </Route>
-                      <Route path="*" element={<NotFound />} />
-                    </Routes>
-                  </BrowserRouter>
-                </TooltipProvider>
+                <FlywheelProvider>
+                  <TooltipProvider>
+                    <Toaster />
+                    <Sonner />
+                    <BrowserRouter>
+                      <Routes>
+                        <Route element={<AppLayout />}>
+                          <Route path="/" element={<Navigate to="/panorama" replace />} />
+                          <Route path="/panorama" element={<Panorama />} />
+                          <Route path="/salud" element={<Salud />} />
+                          <Route path="/conocimiento" element={<Navigate to="/cerebro" replace />} />
+                          <Route path="/viajes" element={<Viajes />} />
+                          <Route path="/finanzas" element={<Finanzas />} />
+                          <Route path="/objetivos" element={<Objetivos />} />
+                          <Route path="/cerebro" element={<Cerebro />} />
+                        </Route>
+                        <Route path="*" element={<NotFound />} />
+                      </Routes>
+                    </BrowserRouter>
+                  </TooltipProvider>
+                </FlywheelProvider>
               </CerebroProvider>
             </AudiovisualProvider>
           </KnowledgeProvider>

@@ -1,6 +1,7 @@
-import { HeartPulse, Plane, Wallet, Target, Brain } from "lucide-react";
+import { HeartPulse, Plane, Wallet, Target, Brain, Gauge } from "lucide-react";
 
 export const navItems = [
+  { title: "Panorama", url: "/panorama", icon: Gauge },
   { title: "RoadMap", url: "/objetivos", icon: Target },
   { title: "Health", url: "/salud", icon: HeartPulse },
   { title: "Second Brain", url: "/cerebro", icon: Brain },

@@ -1,5 +1,5 @@
 import { isBefore, startOfDay, isAfter } from "date-fns";
-import { Plus, Inbox, Calendar as CalendarIcon, Flag, History } from "lucide-react";
+import { Plus, Inbox, Calendar as CalendarIcon, Flag, History, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -10,6 +10,7 @@ import { Section, Empty, TaskList, TaskRow, WeekView, MonthView } from "../TaskC
 import { PRIO_LABEL } from "../types";
 import { HistorialView } from "../HistorialView";
 import { RutinasPanel } from "./RutinasPanel";
+import { ProjectsPanel } from "./ProjectsPanel";
 
 const INBOX_VISIBLE = 6;
 
@@ -83,6 +84,9 @@ export function AccionEnfoquePanel() {
               <TabsTrigger value="historial" className="whitespace-nowrap">
                 <History className="mr-2 h-4 w-4" />Historial
               </TabsTrigger>
+              <TabsTrigger value="proyectos" className="whitespace-nowrap">
+                <FolderKanban className="mr-2 h-4 w-4" />Proyectos
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -135,6 +139,10 @@ export function AccionEnfoquePanel() {
                   onUncomplete={uncomplete}
                   onDelete={delTask}
                 />
+              </TabsContent>
+
+              <TabsContent value="proyectos" className="mt-0">
+                <ProjectsPanel />
               </TabsContent>
             </div>
 
