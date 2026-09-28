@@ -83,6 +83,9 @@ export interface ApunteDoc {
   folderId?: string | null;
   title: string;
   content: string;
+  /** Si el apunte vive como Google Doc real (en vez de local). */
+  googleDocId?: string;
+  googleDocUrl?: string;
   createdAt: string;
   updatedAt: string;
 }

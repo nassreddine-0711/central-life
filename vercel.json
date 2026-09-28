@@ -2,6 +2,10 @@
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
   "functions": {
     "api/apuntes-transcribe-start.ts": { "maxDuration": 30 },
-    "api/apuntes-transcribe-status.ts": { "maxDuration": 30 }
+    "api/apuntes-transcribe-status.ts": { "maxDuration": 30 },
+    "api/google-docs-create.ts": { "maxDuration": 20 },
+    "api/google-docs-append.ts": { "maxDuration": 20 },
+    "api/google-drive-tree.ts": { "maxDuration": 20 },
+    "api/google-drive-create-folder.ts": { "maxDuration": 20 }
   }
 }

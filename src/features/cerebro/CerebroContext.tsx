@@ -48,13 +48,19 @@ interface CerebroCtx {
   addApunteFolder: (name: string, color?: string) => ApunteFolder;
   renameApunteFolder: (id: string, name: string) => void;
   delApunteFolder: (id: string) => void;
-  addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null }) => ApunteDoc;
+  addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null }) => Promise<ApunteDoc>;
   updateApunteDoc: (id: string, patch: Partial<ApunteDoc>) => void;
   delApunteDoc: (id: string) => void;
   updateApunteAudio: (id: string, patch: Partial<ApunteAudio>) => void;
   delApunteAudio: (id: string) => void;
   linkApunteAudio: (audioId: string, documentId: string | null) => void;
   uploadApunteAudio: (file: File, opts?: { title?: string; documentId?: string | null }) => Promise<ApunteAudio>;
+  googleConnected: boolean;
+  connectGoogleDrive: () => void;
+  driveFolders: { id: string; name: string; parentId: string | null }[];
+  driveRootId: string | null;
+  refreshDriveFolders: () => void;
+  createDriveFolder: (name: string, parentId: string) => Promise<{ id: string; name: string; parentId: string | null } | null>;
 
   // Cross-section UI hooks
   openNoteSheet: (opts?: { linkedTo?: LinkedRef; defaultCategory?: string }) => void;
@@ -94,7 +100,8 @@ function filterOldCompletedTasks(tasks: Task[]): Task[] {
 }
 
 export function CerebroProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
+  const [googleConnected, setGoogleConnected] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(() => filterOldCompletedTasks(load(TASKS_KEY, [])));
   const [notes, setNotes] = useState<Note[]>(() =>
     load<Note[]>(NOTES_KEY, []).map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))
@@ -290,19 +297,43 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     setApunteDocs(prev => prev.map(d => d.folderId === id ? { ...d, folderId: null } : d));
   }, []);
 
-  const addApunteDoc: CerebroCtx["addApunteDoc"] = useCallback((partial) => {
+  const addApunteDoc: CerebroCtx["addApunteDoc"] = useCallback(async (partial) => {
     const now = new Date().toISOString();
+    let googleDocId: string | undefined;
+    let googleDocUrl: string | undefined;
+
+    if (googleConnected && session?.access_token) {
+      try {
+        const res = await fetch("/api/google-docs-create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ title: partial.title, folderId: partial.folderId || undefined }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok) {
+          googleDocId = json.googleDocId;
+          googleDocUrl = json.googleDocUrl;
+        } else {
+          toast.error("No se pudo crear el Google Doc", { description: json?.error || "Se guardó como apunte local." });
+        }
+      } catch (e: any) {
+        toast.error("No se pudo crear el Google Doc", { description: e?.message || "Se guardó como apunte local." });
+      }
+    }
+
     const d: ApunteDoc = {
       id: uid(),
       folderId: partial.folderId ?? null,
       title: partial.title.trim() || "Sin título",
-      content: partial.content ?? "",
+      content: googleDocId ? "" : (partial.content ?? ""),
+      googleDocId,
+      googleDocUrl,
       createdAt: now,
       updatedAt: now,
     };
     setApunteDocs(prev => [d, ...prev]);
     return d;
-  }, []);
+  }, [googleConnected, session]);
 
   const updateApunteDoc = useCallback((id: string, patch: Partial<ApunteDoc>) => {
     setApunteDocs(prev => prev.map(d => d.id === id ? { ...d, ...patch, updatedAt: new Date().toISOString() } : d));
@@ -373,6 +404,9 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
 
   // Sondeo periódico de transcripciones en curso
   const pollingRef = useRef<Set<string>>(new Set());
+  const apunteDocsRef = useRef<ApunteDoc[]>(apunteDocs);
+  useEffect(() => { apunteDocsRef.current = apunteDocs; }, [apunteDocs]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       apunteAudios.forEach(a => {
@@ -383,11 +417,23 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
             if (res.status === "completed") {
               updateApunteAudio(a.id, { status: "completed", transcript: res.transcript, summary: res.summary });
               if (a.documentId) {
-                setApunteDocs(prev => prev.map(d => {
-                  if (d.id !== a.documentId) return d;
-                  const addition = `\n\n---\n### 🎙️ ${a.title}\n${res.summary || res.transcript || ""}\n`;
-                  return { ...d, content: (d.content || "") + addition, updatedAt: new Date().toISOString() };
-                }));
+                const addition = `\n\n---\n### 🎙️ ${a.title}\n${res.summary || res.transcript || ""}\n`;
+                const doc = apunteDocsRef.current.find(d => d.id === a.documentId);
+                if (doc?.googleDocId) {
+                  if (session?.access_token) {
+                    fetch("/api/google-docs-append", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+                      body: JSON.stringify({ googleDocId: doc.googleDocId, text: addition }),
+                    }).catch(() => {
+                      toast.error("No se pudo añadir el resumen al Google Doc", { description: doc.title });
+                    });
+                  }
+                } else {
+                  setApunteDocs(prev => prev.map(d => d.id === a.documentId
+                    ? { ...d, content: (d.content || "") + addition, updatedAt: new Date().toISOString() }
+                    : d));
+                }
               }
             } else if (res.status === "failed") {
               updateApunteAudio(a.id, { status: "error", errorMessage: res.error || "La transcripción falló." });
@@ -398,7 +444,85 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       });
     }, 7000);
     return () => clearInterval(interval);
-  }, [apunteAudios, updateApunteAudio]);
+  }, [apunteAudios, updateApunteAudio, session]);
+
+  /* ---------- Conexión con Google Drive/Docs ---------- */
+  useEffect(() => {
+    if (!session?.access_token) return;
+    fetch("/api/google-status", { headers: { Authorization: `Bearer ${session.access_token}` } })
+      .then(r => r.json())
+      .then(j => setGoogleConnected(!!j.connected))
+      .catch(() => {});
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const g = params.get("google");
+    if (!g) return;
+    if (g === "connected") {
+      toast.success("Google Drive conectado");
+      setGoogleConnected(true);
+    } else if (g === "error") {
+      toast.error("No se pudo conectar Google Drive", { description: "Vuelve a intentarlo desde Apuntes." });
+    }
+    params.delete("google");
+    const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : "");
+    window.history.replaceState({}, "", newUrl);
+  }, []);
+
+  const connectGoogleDrive = useCallback(() => {
+    if (!user) return;
+    window.location.href = `/api/google-auth-start?uid=${encodeURIComponent(user.id)}`;
+  }, [user]);
+
+  /* ---------- Árbol de carpetas de Google Drive (en vivo) ---------- */
+  const [driveFolders, setDriveFolders] = useState<{ id: string; name: string; parentId: string | null }[]>([]);
+  const [driveRootId, setDriveRootId] = useState<string | null>(null);
+
+  const refreshDriveFolders = useCallback(() => {
+    if (!session?.access_token) return;
+    fetch("/api/google-drive-tree", { headers: { Authorization: `Bearer ${session.access_token}` } })
+      .then(r => r.json())
+      .then(j => {
+        if (j.folders) {
+          setDriveFolders(j.folders);
+          setDriveRootId(j.rootId || null);
+        }
+      })
+      .catch(() => { /* se reintentará en el próximo refresco */ });
+  }, [session]);
+
+  useEffect(() => {
+    if (googleConnected) refreshDriveFolders();
+  }, [googleConnected, refreshDriveFolders]);
+
+  useEffect(() => {
+    const onFocus = () => { if (googleConnected) refreshDriveFolders(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [googleConnected, refreshDriveFolders]);
+
+  const createDriveFolder: CerebroCtx["createDriveFolder"] = useCallback(async (name, parentId) => {
+    if (!session?.access_token) return null;
+    try {
+      const res = await fetch("/api/google-drive-create-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ name, parentId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error("No se pudo crear la carpeta en Drive", { description: json?.error });
+        return null;
+      }
+      const folder = { id: json.id as string, name: json.name as string, parentId: json.parentId as string };
+      setDriveFolders(prev => [...prev, folder]);
+      return folder;
+    } catch (e: any) {
+      toast.error("No se pudo crear la carpeta en Drive", { description: e?.message });
+      return null;
+    }
+  }, [session]);
 
   const tasksByMilestone = useCallback((id: string) => tasks.filter(t => t.linkedMilestoneId === id), [tasks]);
   const notesByMilestone = useCallback((id: string) => notes.filter(n => n.linkedTo?.kind === "milestone" && n.linkedTo.id === id), [notes]);
@@ -418,6 +542,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     addApunteFolder, renameApunteFolder, delApunteFolder,
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
+    googleConnected, connectGoogleDrive,
+    driveFolders, driveRootId, refreshDriveFolders, createDriveFolder,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     _noteSheetState: noteSheetState,
@@ -435,6 +561,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     addApunteFolder, renameApunteFolder, delApunteFolder,
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
+    googleConnected, connectGoogleDrive,
+    driveFolders, driveRootId, refreshDriveFolders, createDriveFolder,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     noteSheetState, taskDialogState, quickOpen,
