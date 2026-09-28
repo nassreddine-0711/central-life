@@ -2,7 +2,7 @@
    Vercel Serverless Function: añade texto al final de un Google
    Doc existente (usado para insertar el resumen de un audio).
 ============================================================ */
-import { getUserFromRequest, getGoogleAccessToken } from "./_lib/google";
+import { getUserFromRequest, getGoogleAccessToken } from "./_lib/google.js";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {

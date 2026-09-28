@@ -4,7 +4,7 @@
    deja ver lo que la propia app ha creado, así que esta lista
    ya viene naturalmente limitada a "Apuntes - central-life").
 ============================================================ */
-import { getUserFromRequest, getGoogleAccessToken, getOrCreateFolderId } from "./_lib/google";
+import { getUserFromRequest, getGoogleAccessToken, getOrCreateFolderId } from "./_lib/google.js";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "GET") {

@@ -4,7 +4,7 @@
    refresh_token (solo accesible con la service role key) y
    vuelve a mandar al usuario a la app.
 ============================================================ */
-import { getBaseUrl, supabaseAdmin } from "./_lib/google";
+import { getBaseUrl, supabaseAdmin } from "./_lib/google.js";
 
 export default async function handler(req: any, res: any) {
   const { code, state, error } = req.query || {};

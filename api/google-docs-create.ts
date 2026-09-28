@@ -3,7 +3,7 @@
    de la carpeta "Apuntes - central-life" en Drive) para un
    apunte de la app.
 ============================================================ */
-import { getUserFromRequest, getGoogleAccessToken, getOrCreateFolderId } from "./_lib/google";
+import { getUserFromRequest, getGoogleAccessToken, getOrCreateFolderId } from "./_lib/google.js";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {

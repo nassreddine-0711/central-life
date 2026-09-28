@@ -2,7 +2,7 @@
    Vercel Serverless Function: redirige al usuario a la pantalla
    de consentimiento de Google para conectar Drive/Docs.
 ============================================================ */
-import { getBaseUrl } from "./_lib/google";
+import { getBaseUrl } from "./_lib/google.js";
 
 export default function handler(req: any, res: any) {
   const uid = req.query?.uid;

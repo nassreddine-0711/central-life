@@ -2,7 +2,7 @@
    Vercel Serverless Function: indica si el usuario tiene Google
    Drive conectado, sin exponer el refresh_token al cliente.
 ============================================================ */
-import { getUserFromRequest, supabaseAdmin } from "./_lib/google";
+import { getUserFromRequest, supabaseAdmin } from "./_lib/google.js";
 
 export default async function handler(req: any, res: any) {
   const user = await getUserFromRequest(req);

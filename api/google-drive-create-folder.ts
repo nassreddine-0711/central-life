@@ -2,7 +2,7 @@
    Vercel Serverless Function: crea una carpeta (o subcarpeta)
    real dentro de "Apuntes - central-life" en Google Drive.
 ============================================================ */
-import { getUserFromRequest, getGoogleAccessToken, getOrCreateFolderId } from "./_lib/google";
+import { getUserFromRequest, getGoogleAccessToken, getOrCreateFolderId } from "./_lib/google.js";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
