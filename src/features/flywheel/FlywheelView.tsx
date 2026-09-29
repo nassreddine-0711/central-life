@@ -2,14 +2,14 @@ import { Suspense, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Settings2, Plus, Trash2, TrendingUp, TrendingDown, Minus,
-  HeartPulse, Wallet, Brain, Layers3, Plane, Sparkles, Zap,
+  HeartPulse, Wallet, Brain, Layers3, Plane, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useFlywheel, ComputedSpoke, SpokeType } from "./FlywheelContext";
-import { RadialGauge } from "./RadialGauge";
+import { GearScene } from "./GearScene";
 
 const SPOKE_ROUTE: Partial<Record<SpokeType, string>> = {
   health: "/salud",
@@ -32,31 +32,6 @@ function TrendIcon({ trend, className }: { trend: "up" | "down" | "flat"; classN
   if (trend === "up") return <TrendingUp className={cn("h-3 w-3 text-emerald-500", className)} />;
   if (trend === "down") return <TrendingDown className={cn("h-3 w-3 text-rose-500", className)} />;
   return <Minus className={cn("h-3 w-3 text-muted-foreground", className)} />;
-}
-
-/* ---------- Anillo hero: el "motor" del conjunto ---------- */
-function HeroGauge({ pct, trend }: { pct: number; trend: "up" | "down" | "flat" }) {
-  return (
-    <div className="relative">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 rounded-full opacity-70 blur-3xl"
-        style={{ background: "var(--gradient-primary)" }}
-      />
-      <RadialGauge pct={pct} size={236} strokeWidth={13} color="hsl(var(--primary))" colorTo="hsl(var(--primary-glow))" glow>
-        <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-          <Zap className="h-3 w-3" style={{ color: "hsl(var(--primary))" }} /> Momentum
-        </span>
-        <p className="mt-1 font-mono text-[3.25rem] font-bold leading-none tracking-tight text-foreground tabular-nums">
-          {pct}
-          <span className="text-xl font-semibold text-muted-foreground">%</span>
-        </p>
-        <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-          "Mi vida" <TrendIcon trend={trend} />
-        </p>
-      </RadialGauge>
-    </div>
-  );
 }
 
 /* ---------- Barra de composición: qué área pesa más en el conjunto ---------- */
@@ -93,8 +68,30 @@ function CompositionBar({ spokes }: { spokes: ComputedSpoke[] }) {
   );
 }
 
-/* ---------- Volante individual ---------- */
-function SpokeGauge({ spoke }: { spoke: ComputedSpoke }) {
+/* ---------- Engranaje hero: el motor del conjunto ---------- */
+function HeroGear({ pct, trend }: { pct: number; trend: "up" | "down" | "flat" }) {
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <div className="overflow-hidden rounded-full shadow-glow" style={{ width: 240, height: 240 }}>
+        <Suspense fallback={<div style={{ width: 240, height: 240 }} />}>
+          <GearScene pct={pct} accent="hsl(var(--primary))" size={240} big />
+        </Suspense>
+      </div>
+      <div className="text-center">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Momentum</p>
+        <p className="font-mono text-[3rem] font-bold leading-none tracking-tight text-foreground tabular-nums">
+          {pct}<span className="text-lg font-semibold text-muted-foreground">%</span>
+        </p>
+        <p className="mt-1.5 flex items-center justify-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+          "Mi vida" <TrendIcon trend={trend} />
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Engranaje individual ---------- */
+function SpokeGear({ spoke }: { spoke: ComputedSpoke }) {
   const navigate = useNavigate();
   const route = SPOKE_ROUTE[spoke.type];
   const Icon = SPOKE_ICON[spoke.type];
@@ -105,13 +102,16 @@ function SpokeGauge({ spoke }: { spoke: ComputedSpoke }) {
         "group flex flex-col items-center gap-2.5 rounded-2xl border border-border/50 bg-card/50 p-4 transition-all",
         route ? "cursor-pointer hover:-translate-y-0.5 hover:border-border hover:bg-card/80 hover:shadow-lg" : "cursor-default",
       )}
-      style={{ ["--spoke-color" as string]: spoke.color }}
     >
-      <RadialGauge pct={spoke.pct} size={88} strokeWidth={7} color={spoke.color}>
-        <Icon className="h-4 w-4" strokeWidth={2.25} />
-        <p className="mt-1 font-mono text-base font-bold tabular-nums text-foreground">{spoke.pct}</p>
-      </RadialGauge>
+      <div className="overflow-hidden rounded-full ring-1 ring-border/40" style={{ width: 92, height: 92 }}>
+        <Suspense fallback={<div style={{ width: 92, height: 92 }} />}>
+          <GearScene pct={spoke.pct} accent={spoke.color} size={92} />
+        </Suspense>
+      </div>
       <div className="text-center">
+        <p className="flex items-center justify-center gap-1 font-mono text-sm font-bold tabular-nums text-foreground">
+          <Icon className="h-3 w-3" style={{ color: spoke.color }} /> {spoke.pct}%
+        </p>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground">{spoke.label}</p>
         <p className="mt-0.5 flex items-center justify-center gap-1 text-[10px] text-muted-foreground">
           <TrendIcon trend={spoke.trend} />
@@ -139,16 +139,14 @@ export function FlywheelView() {
           style={{ background: "radial-gradient(ellipse 60% 100% at 50% 0%, hsl(var(--primary-glow) / 0.35), transparent)" }}
         />
         <div className="relative flex flex-col items-center gap-8">
-          <Suspense fallback={<div style={{ width: 236, height: 236 }} />}>
-            <HeroGauge pct={overallPct} trend={overallTrend} />
-          </Suspense>
+          <HeroGear pct={overallPct} trend={overallTrend} />
           <CompositionBar spokes={enabled} />
         </div>
       </div>
 
-      {/* Volantes individuales */}
+      {/* Engranajes individuales */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {enabled.map((s) => <SpokeGauge key={s.id} spoke={s} />)}
+        {enabled.map((s) => <SpokeGear key={s.id} spoke={s} />)}
       </div>
 
       <div className="flex justify-center">
