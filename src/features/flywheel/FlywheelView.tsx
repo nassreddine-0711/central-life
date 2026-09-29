@@ -1,32 +1,11 @@
-import { Suspense, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  Settings2, Plus, Trash2, TrendingUp, TrendingDown, Minus,
-  HeartPulse, Wallet, Brain, Layers3, Plane, Sparkles,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { Settings2, Plus, Trash2, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { useFlywheel, ComputedSpoke, SpokeType } from "./FlywheelContext";
-import { GearScene } from "./GearScene";
-
-const SPOKE_ROUTE: Partial<Record<SpokeType, string>> = {
-  health: "/salud",
-  finance: "/finanzas",
-  secondBrain: "/cerebro",
-  projects: "/cerebro",
-  trips: "/viajes",
-};
-
-const SPOKE_ICON: Record<SpokeType, typeof HeartPulse> = {
-  health: HeartPulse,
-  finance: Wallet,
-  secondBrain: Brain,
-  projects: Layers3,
-  trips: Plane,
-  manual: Sparkles,
-};
+import { useFlywheel, ComputedSpoke } from "./FlywheelContext";
+import { MachineScene } from "./MachineScene";
 
 function TrendIcon({ trend, className }: { trend: "up" | "down" | "flat"; className?: string }) {
   if (trend === "up") return <TrendingUp className={cn("h-3 w-3 text-emerald-500", className)} />;
@@ -38,7 +17,7 @@ function TrendIcon({ trend, className }: { trend: "up" | "down" | "flat"; classN
 function CompositionBar({ spokes }: { spokes: ComputedSpoke[] }) {
   const total = spokes.reduce((s, sp) => s + Math.max(sp.pct, 4), 0) || 1;
   return (
-    <div className="w-full max-w-xl space-y-2.5">
+    <div className="mx-auto w-full max-w-xl space-y-2.5">
       <p className="text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
         Qué mueve el conjunto
       </p>
@@ -68,60 +47,6 @@ function CompositionBar({ spokes }: { spokes: ComputedSpoke[] }) {
   );
 }
 
-/* ---------- Engranaje hero: el motor del conjunto ---------- */
-function HeroGear({ pct, trend }: { pct: number; trend: "up" | "down" | "flat" }) {
-  return (
-    <div className="flex flex-col items-center gap-4">
-      <div className="overflow-hidden rounded-full shadow-glow" style={{ width: 240, height: 240 }}>
-        <Suspense fallback={<div style={{ width: 240, height: 240 }} />}>
-          <GearScene pct={pct} accent="hsl(var(--primary))" size={240} big />
-        </Suspense>
-      </div>
-      <div className="text-center">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Momentum</p>
-        <p className="font-mono text-[3rem] font-bold leading-none tracking-tight text-foreground tabular-nums">
-          {pct}<span className="text-lg font-semibold text-muted-foreground">%</span>
-        </p>
-        <p className="mt-1.5 flex items-center justify-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-          "Mi vida" <TrendIcon trend={trend} />
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- Engranaje individual ---------- */
-function SpokeGear({ spoke }: { spoke: ComputedSpoke }) {
-  const navigate = useNavigate();
-  const route = SPOKE_ROUTE[spoke.type];
-  const Icon = SPOKE_ICON[spoke.type];
-  return (
-    <button
-      onClick={() => route && navigate(route)}
-      className={cn(
-        "group flex flex-col items-center gap-2.5 rounded-2xl border border-border/50 bg-card/50 p-4 transition-all",
-        route ? "cursor-pointer hover:-translate-y-0.5 hover:border-border hover:bg-card/80 hover:shadow-lg" : "cursor-default",
-      )}
-    >
-      <div className="overflow-hidden rounded-full ring-1 ring-border/40" style={{ width: 92, height: 92 }}>
-        <Suspense fallback={<div style={{ width: 92, height: 92 }} />}>
-          <GearScene pct={spoke.pct} accent={spoke.color} size={92} />
-        </Suspense>
-      </div>
-      <div className="text-center">
-        <p className="flex items-center justify-center gap-1 font-mono text-sm font-bold tabular-nums text-foreground">
-          <Icon className="h-3 w-3" style={{ color: spoke.color }} /> {spoke.pct}%
-        </p>
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground">{spoke.label}</p>
-        <p className="mt-0.5 flex items-center justify-center gap-1 text-[10px] text-muted-foreground">
-          <TrendIcon trend={spoke.trend} />
-          {spoke.trend === "up" ? "En subida" : spoke.trend === "down" ? "Frenando" : "Estable"}
-        </p>
-      </div>
-    </button>
-  );
-}
-
 export function FlywheelView() {
   const { computed, overallPct, overallTrend, addManualSpoke, updateSpoke, removeSpoke } = useFlywheel();
   const [editing, setEditing] = useState(false);
@@ -130,24 +55,24 @@ export function FlywheelView() {
   const enabled = useMemo(() => computed.filter((s) => s.enabled), [computed]);
 
   return (
-    <div className="space-y-8">
-      {/* Panel hero */}
-      <div className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-gradient-to-b from-card/90 via-card/60 to-background/80 px-6 py-10 shadow-inner sm:px-10">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-56 opacity-40"
-          style={{ background: "radial-gradient(ellipse 60% 100% at 50% 0%, hsl(var(--primary-glow) / 0.35), transparent)" }}
-        />
-        <div className="relative flex flex-col items-center gap-8">
-          <HeroGear pct={overallPct} trend={overallTrend} />
-          <CompositionBar spokes={enabled} />
+    <div className="space-y-6">
+      {/* La máquina: núcleo "Life Integrity" + engranajes periféricos conectados */}
+      <div className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-black shadow-glow">
+        <MachineScene overallPct={overallPct} spokes={enabled} height={520} />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-6 pb-6 pt-16">
+          <div className="mx-auto flex max-w-md flex-col items-center gap-1 text-center">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-amber-300/80">Life Integrity</span>
+            <p className="font-mono text-3xl font-bold leading-none tracking-tight text-white tabular-nums">
+              {overallPct}<span className="text-base font-semibold text-white/60">%</span>
+            </p>
+            <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-white/60">
+              "Mi vida" <TrendIcon trend={overallTrend} className={overallTrend === "flat" ? "text-white/50" : undefined} />
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Engranajes individuales */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {enabled.map((s) => <SpokeGear key={s.id} spoke={s} />)}
-      </div>
+      <CompositionBar spokes={enabled} />
 
       <div className="flex justify-center">
         <Button variant="outline" size="sm" onClick={() => setEditing((e) => !e)} className="gap-1.5">
