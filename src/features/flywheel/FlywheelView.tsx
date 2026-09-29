@@ -1,12 +1,15 @@
-import { Suspense, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Settings2, Plus, Trash2, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import {
+  Settings2, Plus, Trash2, TrendingUp, TrendingDown, Minus,
+  HeartPulse, Wallet, Brain, Layers3, Plane, Sparkles, Zap,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useFlywheel, ComputedSpoke, SpokeType } from "./FlywheelContext";
-import { Flywheel3D } from "./FlywheelMesh";
+import { RadialGauge } from "./RadialGauge";
 
 const SPOKE_ROUTE: Partial<Record<SpokeType, string>> = {
   health: "/salud",
@@ -16,30 +19,103 @@ const SPOKE_ROUTE: Partial<Record<SpokeType, string>> = {
   trips: "/viajes",
 };
 
-function TrendIcon({ trend }: { trend: "up" | "down" | "flat" }) {
-  if (trend === "up") return <TrendingUp className="h-3 w-3 text-emerald-500" />;
-  if (trend === "down") return <TrendingDown className="h-3 w-3 text-rose-500" />;
-  return <Minus className="h-3 w-3 text-muted-foreground" />;
+const SPOKE_ICON: Record<SpokeType, typeof HeartPulse> = {
+  health: HeartPulse,
+  finance: Wallet,
+  secondBrain: Brain,
+  projects: Layers3,
+  trips: Plane,
+  manual: Sparkles,
+};
+
+function TrendIcon({ trend, className }: { trend: "up" | "down" | "flat"; className?: string }) {
+  if (trend === "up") return <TrendingUp className={cn("h-3 w-3 text-emerald-500", className)} />;
+  if (trend === "down") return <TrendingDown className={cn("h-3 w-3 text-rose-500", className)} />;
+  return <Minus className={cn("h-3 w-3 text-muted-foreground", className)} />;
 }
 
-function SpokeWheel({ spoke }: { spoke: ComputedSpoke }) {
+/* ---------- Anillo hero: el "motor" del conjunto ---------- */
+function HeroGauge({ pct, trend }: { pct: number; trend: "up" | "down" | "flat" }) {
+  return (
+    <div className="relative">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 rounded-full opacity-70 blur-3xl"
+        style={{ background: "var(--gradient-primary)" }}
+      />
+      <RadialGauge pct={pct} size={236} strokeWidth={13} color="hsl(var(--primary))" colorTo="hsl(var(--primary-glow))" glow>
+        <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          <Zap className="h-3 w-3" style={{ color: "hsl(var(--primary))" }} /> Momentum
+        </span>
+        <p className="mt-1 font-mono text-[3.25rem] font-bold leading-none tracking-tight text-foreground tabular-nums">
+          {pct}
+          <span className="text-xl font-semibold text-muted-foreground">%</span>
+        </p>
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+          "Mi vida" <TrendIcon trend={trend} />
+        </p>
+      </RadialGauge>
+    </div>
+  );
+}
+
+/* ---------- Barra de composición: qué área pesa más en el conjunto ---------- */
+function CompositionBar({ spokes }: { spokes: ComputedSpoke[] }) {
+  const total = spokes.reduce((s, sp) => s + Math.max(sp.pct, 4), 0) || 1;
+  return (
+    <div className="w-full max-w-xl space-y-2.5">
+      <p className="text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        Qué mueve el conjunto
+      </p>
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted/40">
+        {spokes.map((s) => (
+          <div
+            key={s.id}
+            className="h-full first:rounded-l-full last:rounded-r-full"
+            style={{
+              width: `${(Math.max(s.pct, 4) / total) * 100}%`,
+              background: s.color,
+              opacity: 0.5 + (s.pct / 100) * 0.5,
+            }}
+            title={`${s.label}: ${s.pct}%`}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+        {spokes.map((s) => (
+          <span key={s.id} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: s.color }} />
+            {s.label} <span className="font-mono text-foreground/80">{s.pct}%</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Volante individual ---------- */
+function SpokeGauge({ spoke }: { spoke: ComputedSpoke }) {
   const navigate = useNavigate();
   const route = SPOKE_ROUTE[spoke.type];
+  const Icon = SPOKE_ICON[spoke.type];
   return (
     <button
       onClick={() => route && navigate(route)}
       className={cn(
-        "group flex flex-col items-center gap-1.5 rounded-xl border border-border/50 bg-gradient-to-b from-card/80 to-background/60 p-3 shadow-inner transition",
-        route ? "cursor-pointer hover:border-primary/30 hover:shadow-md" : "cursor-default",
+        "group flex flex-col items-center gap-2.5 rounded-2xl border border-border/50 bg-card/50 p-4 transition-all",
+        route ? "cursor-pointer hover:-translate-y-0.5 hover:border-border hover:bg-card/80 hover:shadow-lg" : "cursor-default",
       )}
+      style={{ ["--spoke-color" as string]: spoke.color }}
     >
-      <Suspense fallback={<div style={{ width: 84, height: 84 }} />}>
-        <Flywheel3D pct={spoke.pct} accent={spoke.color} size={84} />
-      </Suspense>
+      <RadialGauge pct={spoke.pct} size={88} strokeWidth={7} color={spoke.color}>
+        <Icon className="h-4 w-4" strokeWidth={2.25} />
+        <p className="mt-1 font-mono text-base font-bold tabular-nums text-foreground">{spoke.pct}</p>
+      </RadialGauge>
       <div className="text-center">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground">{spoke.label}</p>
-        <p className="flex items-center justify-center gap-1 font-mono text-[11px] text-muted-foreground">
-          {spoke.pct}% <TrendIcon trend={spoke.trend} />
+        <p className="mt-0.5 flex items-center justify-center gap-1 text-[10px] text-muted-foreground">
+          <TrendIcon trend={spoke.trend} />
+          {spoke.trend === "up" ? "En subida" : spoke.trend === "down" ? "Frenando" : "Estable"}
         </p>
       </div>
     </button>
@@ -51,26 +127,28 @@ export function FlywheelView() {
   const [editing, setEditing] = useState(false);
   const [newLabel, setNewLabel] = useState("");
 
-  const enabled = computed.filter((s) => s.enabled);
+  const enabled = useMemo(() => computed.filter((s) => s.enabled), [computed]);
 
   return (
-    <div className="space-y-6">
-      {/* Volante grande */}
-      <div className="flex flex-col items-center gap-2 rounded-2xl border border-border/60 bg-gradient-to-b from-card/90 to-background/70 p-8 shadow-inner">
-        <Suspense fallback={<div style={{ width: 220, height: 220 }} />}>
-          <Flywheel3D pct={overallPct} accent="hsl(var(--primary))" size={220} />
-        </Suspense>
-        <div className="text-center">
-          <p className="font-mono text-4xl font-semibold tabular-nums text-foreground">{overallPct}<span className="text-xl text-muted-foreground">%</span></p>
-          <p className="mt-0.5 flex items-center justify-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-            Momentum · "Mi vida" <TrendIcon trend={overallTrend} />
-          </p>
+    <div className="space-y-8">
+      {/* Panel hero */}
+      <div className="relative overflow-hidden rounded-[2rem] border border-border/60 bg-gradient-to-b from-card/90 via-card/60 to-background/80 px-6 py-10 shadow-inner sm:px-10">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-56 opacity-40"
+          style={{ background: "radial-gradient(ellipse 60% 100% at 50% 0%, hsl(var(--primary-glow) / 0.35), transparent)" }}
+        />
+        <div className="relative flex flex-col items-center gap-8">
+          <Suspense fallback={<div style={{ width: 236, height: 236 }} />}>
+            <HeroGauge pct={overallPct} trend={overallTrend} />
+          </Suspense>
+          <CompositionBar spokes={enabled} />
         </div>
       </div>
 
-      {/* Volantes pequeños */}
+      {/* Volantes individuales */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {enabled.map((s) => <SpokeWheel key={s.id} spoke={s} />)}
+        {enabled.map((s) => <SpokeGauge key={s.id} spoke={s} />)}
       </div>
 
       <div className="flex justify-center">
