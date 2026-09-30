@@ -57,9 +57,11 @@ interface CerebroCtx {
   apunteFolders: ApunteFolder[];
   apunteDocs: ApunteDoc[];
   apunteAudios: ApunteAudio[];
-  addApunteFolder: (name: string, color?: string) => ApunteFolder;
+  addApunteFolder: (name: string, parentId?: string | null, color?: string) => ApunteFolder;
   renameApunteFolder: (id: string, name: string) => void;
   delApunteFolder: (id: string) => void;
+  folderPath: (folderId?: string | null) => ApunteFolder[];
+  convertNoteToDoc: (noteId: string) => Promise<void>;
   addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null }) => Promise<ApunteDoc>;
   updateApunteDoc: (id: string, patch: Partial<ApunteDoc>) => void;
   delApunteDoc: (id: string) => void;
@@ -75,7 +77,7 @@ interface CerebroCtx {
   createDriveFolder: (name: string, parentId: string) => Promise<{ id: string; name: string; parentId: string | null } | null>;
 
   // Cross-section UI hooks
-  openNoteSheet: (opts?: { linkedTo?: LinkedRef; defaultCategory?: string }) => void;
+  openNoteSheet: (opts?: { linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }) => void;
   openTaskDialog: (opts?: { linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; editId?: string }) => void;
   openQuickCapture: () => void;
   createTaskFromNote: (note: Note) => void;
@@ -86,7 +88,7 @@ interface CerebroCtx {
   milestoneProgress: (milestoneId: string) => { done: number; total: number; pct: number };
 
   // internal modal state (consumed by mounted dialogs)
-  _noteSheetState: { open: boolean; linkedTo?: LinkedRef; defaultCategory?: string };
+  _noteSheetState: { open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string };
   _setNoteSheetOpen: (open: boolean) => void;
   _taskDialogState: { open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; editId?: string };
   _setTaskDialogOpen: (open: boolean) => void;
@@ -125,11 +127,14 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>(() => load(PROJECT_CATS_KEY, []));
   const [projectUpdates, setProjectUpdates] = useState<ProjectUpdate[]>(() => load(PROJECT_UPDATES_KEY, []));
   const [apunteFolders, setApunteFolders] = useState<ApunteFolder[]>(() => load(APUNTE_FOLDERS_KEY, []));
+  const createDriveFolderRef = useRef<((name: string, parentId: string) => Promise<{ id: string; name: string; parentId: string | null } | null>) | null>(null);
+  const [driveFolders, setDriveFolders] = useState<{ id: string; name: string; parentId: string | null }[]>([]);
+  const [driveRootId, setDriveRootId] = useState<string | null>(null);
   const [apunteDocs, setApunteDocs] = useState<ApunteDoc[]>(() => load(APUNTE_DOCS_KEY, []));
   const [apunteAudios, setApunteAudios] = useState<ApunteAudio[]>(() => load(APUNTE_AUDIOS_KEY, []));
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
 
-  const [noteSheetState, setNoteSheetState] = useState<{ open: boolean; linkedTo?: LinkedRef; defaultCategory?: string }>({ open: false });
+  const [noteSheetState, setNoteSheetState] = useState<{ open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }>({ open: false });
   const [taskDialogState, setTaskDialogState] = useState<{ open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; editId?: string }>({ open: false });
   const [quickOpen, setQuickOpen] = useState(false);
 
@@ -249,7 +254,14 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openNoteSheet: CerebroCtx["openNoteSheet"] = useCallback((opts) => {
-    setNoteSheetState({ open: true, linkedTo: opts?.linkedTo, defaultCategory: opts?.defaultCategory });
+    setNoteSheetState({
+      open: true,
+      linkedTo: opts?.linkedTo,
+      defaultCategory: opts?.defaultCategory,
+      defaultKind: opts?.defaultKind,
+      defaultFolderId: opts?.defaultFolderId,
+      defaultProjectId: opts?.defaultProjectId,
+    });
   }, []);
 
   const openTaskDialog: CerebroCtx["openTaskDialog"] = useCallback((opts) => {
@@ -343,21 +355,80 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
 
   const projectNotes = useCallback((projectId: string) => notes.filter(n => n.projectId === projectId), [notes]);
 
-  /* ---------- Apuntes (carpetas + documentos + audios transcritos) ---------- */
-  const addApunteFolder: CerebroCtx["addApunteFolder"] = useCallback((name, color) => {
-    const f: ApunteFolder = { id: uid(), name: name.trim(), color, createdAt: new Date().toISOString() };
+  /* ---------- Archivo (árbol único de carpetas: notas, referencias, apuntes) ---------- */
+  const addApunteFolder: CerebroCtx["addApunteFolder"] = useCallback((name, parentId, color) => {
+    const f: ApunteFolder = { id: uid(), name: name.trim(), color, parentId: parentId ?? null, createdAt: new Date().toISOString() };
     setApunteFolders(prev => [...prev, f]);
+    // Espejo en Google Drive, si está conectado (en segundo plano; si falla, la carpeta se queda solo local).
+    if (googleConnected && session?.access_token) {
+      const parentDriveId = parentId
+        ? apunteFolders.find(x => x.id === parentId)?.driveFolderId
+        : driveRootId;
+      if (parentDriveId) {
+        createDriveFolderRef.current?.(f.name, parentDriveId).then(drive => {
+          if (drive) setApunteFolders(prev => prev.map(x => x.id === f.id ? { ...x, driveFolderId: drive.id } : x));
+        });
+      }
+    }
     return f;
-  }, []);
+  }, [googleConnected, session, apunteFolders, driveRootId]);
 
   const renameApunteFolder = useCallback((id: string, name: string) => {
     setApunteFolders(prev => prev.map(f => f.id === id ? { ...f, name: name.trim() || f.name } : f));
   }, []);
 
   const delApunteFolder = useCallback((id: string) => {
-    setApunteFolders(prev => prev.filter(f => f.id !== id));
+    setApunteFolders(prev => {
+      const target = prev.find(f => f.id === id);
+      const parentId = target?.parentId ?? null;
+      return prev.filter(f => f.id !== id).map(f => f.parentId === id ? { ...f, parentId } : f);
+    });
     setApunteDocs(prev => prev.map(d => d.folderId === id ? { ...d, folderId: null } : d));
+    setNotes(prev => prev.map(n => n.folderId === id ? { ...n, folderId: null } : n));
   }, []);
+
+  const folderPath = useCallback((folderId?: string | null) => {
+    const chain: ApunteFolder[] = [];
+    let cur = folderId ? apunteFolders.find(f => f.id === folderId) : undefined;
+    while (cur) {
+      chain.unshift(cur);
+      cur = cur.parentId ? apunteFolders.find(f => f.id === cur!.parentId) : undefined;
+    }
+    return chain;
+  }, [apunteFolders]);
+
+  const convertNoteToDoc: CerebroCtx["convertNoteToDoc"] = useCallback(async (noteId) => {
+    if (!session?.access_token) {
+      toast.error("Conecta Google Drive primero", { description: "Ve a Apuntes o Archivo para conectarlo." });
+      return;
+    }
+    const note = notes.find(n => n.id === noteId);
+    if (!note) return;
+    try {
+      const folderDriveId = note.folderId ? apunteFolders.find(f => f.id === note.folderId)?.driveFolderId : undefined;
+      const res = await fetch("/api/google-docs-create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ title: note.title, folderId: folderDriveId || undefined }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.googleDocId) {
+        toast.error("No se pudo crear el Google Doc", { description: json?.error });
+        return;
+      }
+      if (note.content?.trim()) {
+        await fetch("/api/google-docs-append", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ googleDocId: json.googleDocId, text: note.content }),
+        }).catch(() => {});
+      }
+      setNotes(prev => prev.map(n => n.id === noteId ? { ...n, googleDocId: json.googleDocId, googleDocUrl: json.googleDocUrl } : n));
+      toast.success("Convertido a Google Doc", { description: note.title });
+    } catch (e: any) {
+      toast.error("No se pudo crear el Google Doc", { description: e?.message });
+    }
+  }, [session, notes, apunteFolders]);
 
   const addApunteDoc: CerebroCtx["addApunteDoc"] = useCallback(async (partial) => {
     const now = new Date().toISOString();
@@ -538,9 +609,6 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   /* ---------- Árbol de carpetas de Google Drive (en vivo) ---------- */
-  const [driveFolders, setDriveFolders] = useState<{ id: string; name: string; parentId: string | null }[]>([]);
-  const [driveRootId, setDriveRootId] = useState<string | null>(null);
-
   const refreshDriveFolders = useCallback(() => {
     if (!session?.access_token) return;
     fetch("/api/google-drive-tree", { headers: { Authorization: `Bearer ${session.access_token}` } })
@@ -586,6 +654,35 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     }
   }, [session]);
 
+  useEffect(() => { createDriveFolderRef.current = createDriveFolder; }, [createDriveFolder]);
+
+  // Reconciliación: si aparecen carpetas nuevas en Drive (creadas fuera de la web),
+  // se reflejan aquí como carpetas locales la próxima vez que se refresca el árbol.
+  useEffect(() => {
+    if (!googleConnected || driveFolders.length === 0) return;
+    setApunteFolders(prev => {
+      const byDriveId = new Map(prev.filter(f => f.driveFolderId).map(f => [f.driveFolderId as string, f]));
+      const additions: ApunteFolder[] = [];
+      const resolveLocalParent = (driveParentId: string | null): string | null | undefined => {
+        if (driveParentId === driveRootId) return null;
+        if (!driveParentId) return undefined;
+        const match = byDriveId.get(driveParentId) ?? additions.find(f => f.driveFolderId === driveParentId);
+        return match ? match.id : undefined;
+      };
+      // Varias pasadas para que las subcarpetas de carpetas recién creadas también entren.
+      for (let pass = 0; pass < 4; pass++) {
+        driveFolders.forEach(df => {
+          if (byDriveId.has(df.id) || additions.some(a => a.driveFolderId === df.id)) return;
+          const localParent = resolveLocalParent(df.parentId);
+          if (localParent === undefined) return; // el padre aún no está mirado; se intentará en la siguiente pasada
+          additions.push({ id: uid(), name: df.name, parentId: localParent, driveFolderId: df.id, createdAt: new Date().toISOString() });
+        });
+      }
+      if (additions.length === 0) return prev;
+      return [...prev, ...additions];
+    });
+  }, [driveFolders, driveRootId, googleConnected]);
+
   const tasksByMilestone = useCallback((id: string) => tasks.filter(t => t.linkedMilestoneId === id), [tasks]);
   const notesByMilestone = useCallback((id: string) => notes.filter(n => n.linkedTo?.kind === "milestone" && n.linkedTo.id === id), [notes]);
   const milestoneProgress = useCallback((id: string) => {
@@ -603,7 +700,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     addProjectCategory, updateProjectCategory, delProjectCategory,
     addProjectUpdate, delProjectUpdate, projectUpdatesFor, projectNotes,
     apunteFolders, apunteDocs, apunteAudios,
-    addApunteFolder, renameApunteFolder, delApunteFolder,
+    addApunteFolder, renameApunteFolder, delApunteFolder, folderPath, convertNoteToDoc,
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive,
@@ -624,7 +721,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     addProjectCategory, updateProjectCategory, delProjectCategory,
     addProjectUpdate, delProjectUpdate, projectUpdatesFor, projectNotes,
     apunteFolders, apunteDocs, apunteAudios,
-    addApunteFolder, renameApunteFolder, delApunteFolder,
+    addApunteFolder, renameApunteFolder, delApunteFolder, folderPath, convertNoteToDoc,
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive,

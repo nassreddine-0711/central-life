@@ -110,11 +110,19 @@ export interface ProjectUpdate {
 
 export const PROJECT_UPDATES_KEY = "cerebro.projectUpdates.v1";
 
-/* ---------- Apuntes (carpetas + documentos + audios transcritos) ---------- */
+/* ---------- Archivo (árbol de carpetas único: notas, referencias, apuntes) ----------
+   Este mismo árbol de carpetas es compartido por Notas/Referencias y por los
+   Apuntes de la uni. Cada carpeta puede tener un espejo real en Google Drive
+   (driveFolderId); crear una carpeta aquí crea la carpeta en Drive, y las
+   carpetas nuevas creadas directamente en Drive se reflejan aquí al refrescar. */
 export interface ApunteFolder {
   id: string;
   name: string;
   color?: string;
+  /** Carpeta padre en el árbol local (null/undefined = raíz). */
+  parentId?: string | null;
+  /** Id de la carpeta espejo en Google Drive, si esta carpeta está sincronizada. */
+  driveFolderId?: string | null;
   createdAt: string;
 }
 
@@ -195,6 +203,11 @@ export interface Note {
   linkedTo?: LinkedRef;
   /** Si está vinculada a un Proyecto. */
   projectId?: string;
+  /** Carpeta del árbol de Archivo a la que pertenece (null/undefined = raíz). */
+  folderId?: string | null;
+  /** Si se ha convertido explícitamente en un Google Doc real. */
+  googleDocId?: string;
+  googleDocUrl?: string;
 }
 
 export const TASKS_KEY = "cerebro.tasks.v1";

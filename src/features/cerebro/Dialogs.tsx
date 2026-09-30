@@ -358,12 +358,12 @@ export function NoteSheet() {
 
   useEffect(() => {
     if (state.open) {
-      setKind("note");
+      setKind(state.defaultKind ?? "note");
       setContent(""); setUrl(""); setTags(""); setNewCat(""); setPhoto(undefined);
       setTitle(state.linkedTo ? `Notas sobre ${state.linkedTo.title}` : "");
       setCategory(state.defaultCategory ?? DEFAULT_NOTE_CAT);
     }
-  }, [state.open, state.linkedTo, state.defaultCategory]);
+  }, [state.open, state.linkedTo, state.defaultCategory, state.defaultKind]);
 
   const onPhotoFile = async (file?: File) => {
     if (!file) return;
@@ -390,6 +390,8 @@ export function NoteSheet() {
       category: category || DEFAULT_NOTE_CAT,
       createdAt: new Date().toISOString(),
       linkedTo: state.linkedTo,
+      folderId: state.defaultFolderId,
+      projectId: state.defaultProjectId,
     });
     _setNoteSheetOpen(false);
   };

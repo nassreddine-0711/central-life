@@ -1,4 +1,4 @@
-import { Link2, FileText, Trash2, Tag, ListPlus, Bookmark, Pencil, Image as ImageIcon, X as XIcon, FolderKanban } from "lucide-react";
+import { Link2, FileText, Trash2, Tag, ListPlus, Bookmark, Pencil, Image as ImageIcon, X as XIcon, FolderKanban, Folder, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,10 +11,11 @@ import { Note } from "./types";
 import { useCerebro } from "./CerebroContext";
 import { useState } from "react";
 
-export function NoteCard({ note }: { note: Note }) {
-  const { delNote, createTaskFromNote, updateNote, noteCats, projects } = useCerebro();
+export function NoteCard({ note, hideFolderPicker }: { note: Note; hideFolderPicker?: boolean }) {
+  const { delNote, createTaskFromNote, updateNote, noteCats, projects, apunteFolders, googleConnected, convertNoteToDoc } = useCerebro();
   const [editOpen, setEditOpen] = useState(false);
   const [lightbox, setLightbox] = useState(false);
+  const [converting, setConverting] = useState(false);
 
   // Edit state
   const [title, setTitle] = useState(note.title);
@@ -24,6 +25,7 @@ export function NoteCard({ note }: { note: Note }) {
   const [category, setCategory] = useState(note.category);
   const [photo, setPhoto] = useState<string | undefined>(note.photo);
   const [projectId, setProjectId] = useState<string | undefined>(note.projectId);
+  const [folderId, setFolderId] = useState<string | undefined | null>(note.folderId);
 
   const project = note.projectId ? projects.find(p => p.id === note.projectId) : undefined;
 
@@ -35,7 +37,14 @@ export function NoteCard({ note }: { note: Note }) {
     setCategory(note.category);
     setPhoto(note.photo);
     setProjectId(note.projectId);
+    setFolderId(note.folderId);
     setEditOpen(true);
+  };
+
+  const handleConvert = async () => {
+    setConverting(true);
+    await convertNoteToDoc(note.id);
+    setConverting(false);
   };
 
   const onPhotoFile = (file?: File) => {
@@ -54,6 +63,7 @@ export function NoteCard({ note }: { note: Note }) {
       category,
       photo: photo || undefined,
       projectId,
+      folderId,
     });
     setEditOpen(false);
   };
@@ -62,11 +72,44 @@ export function NoteCard({ note }: { note: Note }) {
     <>
       <div className="group flex flex-col rounded-xl border bg-card/70 p-3 backdrop-blur-sm transition-colors hover:border-primary/40">
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
             {note.kind === "ref" ? <Link2 className="h-3.5 w-3.5 shrink-0 text-primary" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
-            <p className="truncate text-sm font-medium">{note.title}</p>
+            {note.googleDocId ? (
+              <a
+                href={note.googleDocUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="truncate text-sm font-medium hover:underline"
+                title="Abrir en Google Docs"
+              >
+                {note.title}
+              </a>
+            ) : (
+              <p className="truncate text-sm font-medium">{note.title}</p>
+            )}
           </div>
           <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+            {note.googleDocId ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <a href={note.googleDocUrl} target="_blank" rel="noreferrer">
+                    <Button size="icon" variant="ghost" className="h-6 w-6">
+                      <ExternalLink className="h-3 w-3" />
+                    </Button>
+                  </a>
+                </TooltipTrigger>
+                <TooltipContent>Abrir en Google Docs</TooltipContent>
+              </Tooltip>
+            ) : googleConnected && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={handleConvert} disabled={converting}>
+                    {converting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Convertir a Google Doc</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button size="icon" variant="ghost" className="h-6 w-6" onClick={openEdit}>
@@ -119,6 +162,11 @@ export function NoteCard({ note }: { note: Note }) {
             <Badge variant="outline" className="h-5 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary">
               <FolderKanban className="h-2.5 w-2.5" />
               {project.title}
+            </Badge>
+          )}
+          {note.googleDocId && (
+            <Badge variant="outline" className="h-5 gap-1 border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-500">
+              <FileText className="h-2.5 w-2.5" /> Google Doc
             </Badge>
           )}
           {note.tags.map(t => <Badge key={t} variant="secondary" className="h-5 text-[10px]"><Tag className="mr-1 h-2.5 w-2.5" />{t}</Badge>)}
@@ -198,6 +246,26 @@ export function NoteCard({ note }: { note: Note }) {
                 </SelectContent>
               </Select>
             </div>
+
+            {!hideFolderPicker && (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Carpeta</label>
+                <Select value={folderId ?? "__root"} onValueChange={(v) => setFolderId(v === "__root" ? null : v)}>
+                  <SelectTrigger><SelectValue placeholder="Raíz de Archivo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__root"><Folder className="mr-1 inline h-3 w-3" />Raíz de Archivo</SelectItem>
+                    {apunteFolders.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {note.googleDocId && (
+              <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
+                Esta {note.kind === "ref" ? "referencia" : "nota"} vive en Google Docs.{" "}
+                <a href={note.googleDocUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">Abrir en Google Docs</a>
+              </p>
+            )}
 
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setEditOpen(false)}>Cancelar</Button>
