@@ -596,7 +596,10 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       toast.success("Google Drive conectado");
       setGoogleConnected(true);
     } else if (g === "error") {
-      toast.error("No se pudo conectar Google Drive", { description: "Vuelve a intentarlo desde Apuntes." });
+      const reason = params.get("reason");
+      toast.error("No se pudo conectar Google Drive", {
+        description: reason ? `Motivo: ${reason}` : "Vuelve a intentarlo desde Apuntes.",
+      });
     }
     params.delete("google");
     const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : "");
