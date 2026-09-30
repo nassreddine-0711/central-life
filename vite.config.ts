@@ -22,8 +22,11 @@ export default defineConfig(({ mode }) => ({
       includeAssets: ["favicon.ico", "placeholder.svg", "icon-192.png", "icon-512.png", "apple-touch-icon.png"],
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        // Cachea navegación para uso offline básico
+        // Cachea navegación para uso offline básico — pero nunca para /api/*,
+        // que son funciones serverless reales (Google OAuth, Drive, etc.) y
+        // deben llegar siempre a la red, no a la app cacheada.
         navigateFallback: "/index.html",
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
