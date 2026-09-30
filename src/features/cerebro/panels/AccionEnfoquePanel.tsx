@@ -1,5 +1,5 @@
 import { isBefore, startOfDay, isAfter } from "date-fns";
-import { Plus, Inbox, Calendar as CalendarIcon, Flag, History, FolderKanban } from "lucide-react";
+import { Plus, Inbox, Calendar as CalendarIcon, Flag, History, ListTodo, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -14,7 +14,7 @@ import { ProjectsPanel } from "./ProjectsPanel";
 
 const INBOX_VISIBLE = 6;
 
-export function AccionEnfoquePanel() {
+function FocoPanel() {
   const { tasks, fadingIds, toggleTask, delTask, updateTask, addTask, openTaskDialog, openQuickCapture } = useCerebro();
   const [quickTask, setQuickTask] = useState("");
   const [inboxOpen, setInboxOpen] = useState(false);
@@ -84,9 +84,6 @@ export function AccionEnfoquePanel() {
               <TabsTrigger value="historial" className="whitespace-nowrap">
                 <History className="mr-2 h-4 w-4" />Historial
               </TabsTrigger>
-              <TabsTrigger value="proyectos" className="whitespace-nowrap">
-                <FolderKanban className="mr-2 h-4 w-4" />Proyectos
-              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -140,10 +137,6 @@ export function AccionEnfoquePanel() {
                   onDelete={delTask}
                 />
               </TabsContent>
-
-              <TabsContent value="proyectos" className="mt-0">
-                <ProjectsPanel />
-              </TabsContent>
             </div>
 
             {/* RIGHT: Inbox + Atrasadas */}
@@ -194,5 +187,30 @@ export function AccionEnfoquePanel() {
         <RutinasPanel />
       </div>
     </div>
+  );
+}
+
+export function AccionEnfoquePanel() {
+  return (
+    <Tabs defaultValue="foco" className="w-full">
+      <div className="mb-4 -mx-1 overflow-x-auto px-1">
+        <TabsList className="inline-flex h-auto w-max gap-1">
+          <TabsTrigger value="foco" className="whitespace-nowrap">
+            <ListTodo className="mr-2 h-4 w-4" />Foco
+          </TabsTrigger>
+          <TabsTrigger value="proyectos" className="whitespace-nowrap">
+            <FolderKanban className="mr-2 h-4 w-4" />Proyectos
+          </TabsTrigger>
+        </TabsList>
+      </div>
+
+      <TabsContent value="foco" className="mt-0">
+        <FocoPanel />
+      </TabsContent>
+
+      <TabsContent value="proyectos" className="mt-0">
+        <ProjectsPanel />
+      </TabsContent>
+    </Tabs>
   );
 }
