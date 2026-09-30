@@ -620,9 +620,40 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /** Vincula un audio a un documento. Si el audio ya tiene transcripción lista
+   *  (p. ej. se vincula a un documento EXISTENTE después de completarse, en vez
+   *  de crear uno nuevo en el momento), hay que pegarla ahora mismo: antes solo
+   *  se pegaba en el instante en que la transcripción terminaba, así que vincular
+   *  un audio ya completado a un documento existente no escribía nada en Drive. */
   const linkApunteAudio = useCallback((audioId: string, documentId: string | null) => {
     setApunteAudios(prev => prev.map(a => a.id === audioId ? { ...a, documentId } : a));
-  }, []);
+
+    const audio = apunteAudios.find(a => a.id === audioId);
+    if (documentId && audio?.status === "completed" && (audio.summary || audio.transcript)) {
+      const addition = `
+
+---
+### 🎙️ ${audio.title}
+${audio.summary || audio.transcript || ""}
+`;
+      const doc = apunteDocs.find(d => d.id === documentId);
+      if (doc?.googleDocId) {
+        if (session?.access_token) {
+          fetch("/api/google-docs-append", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ googleDocId: doc.googleDocId, text: addition }),
+          }).catch(() => {
+            toast.error("No se pudo añadir el resumen al Google Doc", { description: doc.title });
+          });
+        }
+      } else if (doc) {
+        setApunteDocs(prev => prev.map(d => d.id === documentId
+          ? { ...d, content: (d.content || "") + addition, updatedAt: new Date().toISOString() }
+          : d));
+      }
+    }
+  }, [apunteAudios, apunteDocs, session]);
 
   const uploadApunteAudio: CerebroCtx["uploadApunteAudio"] = useCallback(async (file, opts) => {
     if (!user) throw new Error("Debes iniciar sesión.");
