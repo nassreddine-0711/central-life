@@ -61,6 +61,8 @@ interface CerebroCtx {
   renameApunteFolder: (id: string, name: string) => void;
   delApunteFolder: (id: string) => void;
   folderPath: (folderId?: string | null) => ApunteFolder[];
+  moveApunteFolder: (id: string, newParentId: string | null) => void;
+  moveApunteDoc: (id: string, newFolderId: string | null) => void;
   convertNoteToDoc: (noteId: string) => Promise<void>;
   addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null }) => Promise<ApunteDoc | null>;
   updateApunteDoc: (id: string, patch: Partial<ApunteDoc>) => void;
@@ -128,7 +130,6 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>(() => load(PROJECT_CATS_KEY, []));
   const [projectUpdates, setProjectUpdates] = useState<ProjectUpdate[]>(() => load(PROJECT_UPDATES_KEY, []));
   const [apunteFolders, setApunteFolders] = useState<ApunteFolder[]>(() => load(APUNTE_FOLDERS_KEY, []));
-  const createDriveFolderRef = useRef<((name: string, parentId: string) => Promise<{ id: string; name: string; parentId: string | null } | null>) | null>(null);
   const [driveFolders, setDriveFolders] = useState<{ id: string; name: string; parentId: string | null }[]>([]);
   const [driveRootId, setDriveRootId] = useState<string | null>(null);
   const backfillInFlight = useRef<Set<string>>(new Set());
@@ -361,19 +362,11 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const addApunteFolder: CerebroCtx["addApunteFolder"] = useCallback((name, parentId, color) => {
     const f: ApunteFolder = { id: uid(), name: name.trim(), color, parentId: parentId ?? null, createdAt: new Date().toISOString() };
     setApunteFolders(prev => [...prev, f]);
-    // Espejo en Google Drive, si está conectado (en segundo plano; si falla, la carpeta se queda solo local).
-    if (googleConnected && session?.access_token) {
-      const parentDriveId = parentId
-        ? apunteFolders.find(x => x.id === parentId)?.driveFolderId
-        : driveRootId;
-      if (parentDriveId) {
-        createDriveFolderRef.current?.(f.name, parentDriveId).then(drive => {
-          if (drive) setApunteFolders(prev => prev.map(x => x.id === f.id ? { ...x, driveFolderId: drive.id } : x));
-        });
-      }
-    }
+    // El espejo en Google Drive lo crea, en segundo plano, el efecto de sincronización
+    // más abajo (el mismo que hace el "backfill" de carpetas antiguas) — es el único
+    // sitio que crea carpetas en Drive, para no acabar creando la misma dos veces.
     return f;
-  }, [googleConnected, session, apunteFolders, driveRootId]);
+  }, []);
 
   const renameApunteFolder = useCallback((id: string, name: string) => {
     setApunteFolders(prev => prev.map(f => f.id === id ? { ...f, name: name.trim() || f.name } : f));
@@ -398,6 +391,58 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     }
     return chain;
   }, [apunteFolders]);
+
+  /** Mueve un archivo de Drive (carpeta o documento) a otra carpeta padre. Best-effort: si falla, se queda como estaba en Drive. */
+  const moveDriveFile = useCallback(async (fileId: string, newParentDriveId: string) => {
+    if (!session?.access_token) return;
+    try {
+      const res = await fetch("/api/google-drive-move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ fileId, newParentId: newParentDriveId }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        toast.error("Se movió aquí, pero no en Drive", { description: json?.error });
+      }
+    } catch (e: any) {
+      toast.error("Se movió aquí, pero no en Drive", { description: e?.message });
+    }
+  }, [session]);
+
+  const moveApunteFolder: CerebroCtx["moveApunteFolder"] = useCallback((id, newParentId) => {
+    if (id === newParentId) return;
+    // Evita mover una carpeta dentro de sí misma o de una de sus propias subcarpetas.
+    const isDescendantOfMoved = (candidateId: string | null): boolean => {
+      let cur = candidateId ? apunteFolders.find(f => f.id === candidateId) : undefined;
+      while (cur) {
+        if (cur.id === id) return true;
+        cur = cur.parentId ? apunteFolders.find(f => f.id === cur!.parentId) : undefined;
+      }
+      return false;
+    };
+    if (newParentId && isDescendantOfMoved(newParentId)) {
+      toast.error("No puedes mover una carpeta dentro de sí misma.");
+      return;
+    }
+    const folder = apunteFolders.find(f => f.id === id);
+    if (!folder || (folder.parentId ?? null) === (newParentId ?? null)) return;
+    setApunteFolders(prev => prev.map(f => f.id === id ? { ...f, parentId: newParentId } : f));
+    if (folder.driveFolderId) {
+      const newParentDriveId = newParentId ? apunteFolders.find(f => f.id === newParentId)?.driveFolderId : driveRootId;
+      if (newParentDriveId) moveDriveFile(folder.driveFolderId, newParentDriveId);
+    }
+  }, [apunteFolders, driveRootId, moveDriveFile]);
+
+  const moveApunteDoc: CerebroCtx["moveApunteDoc"] = useCallback((id, newFolderId) => {
+    const doc = apunteDocs.find(d => d.id === id);
+    if (!doc || (doc.folderId ?? null) === (newFolderId ?? null)) return;
+    setApunteDocs(prev => prev.map(d => d.id === id ? { ...d, folderId: newFolderId, updatedAt: new Date().toISOString() } : d));
+    if (doc.googleDocId) {
+      const newParentDriveId = newFolderId ? apunteFolders.find(f => f.id === newFolderId)?.driveFolderId : driveRootId;
+      if (newParentDriveId) moveDriveFile(doc.googleDocId, newParentDriveId);
+    }
+  }, [apunteDocs, apunteFolders, driveRootId, moveDriveFile]);
 
   /** Crea un Google Doc real (en la carpeta de Drive dada, si la hay) y le pega el contenido inicial. */
   const createGoogleDoc = useCallback(async (
@@ -702,8 +747,6 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     }
   }, [session]);
 
-  useEffect(() => { createDriveFolderRef.current = createDriveFolder; }, [createDriveFolder]);
-
   // Reconciliación: si aparecen carpetas nuevas en Drive (creadas fuera de la web),
   // se reflejan aquí como carpetas locales la próxima vez que se refresca el árbol.
   useEffect(() => {
@@ -814,7 +857,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     addProjectCategory, updateProjectCategory, delProjectCategory,
     addProjectUpdate, delProjectUpdate, projectUpdatesFor, projectNotes,
     apunteFolders, apunteDocs, apunteAudios,
-    addApunteFolder, renameApunteFolder, delApunteFolder, folderPath, convertNoteToDoc,
+    addApunteFolder, renameApunteFolder, delApunteFolder, folderPath, moveApunteFolder, moveApunteDoc, convertNoteToDoc,
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive,
@@ -835,7 +878,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     addProjectCategory, updateProjectCategory, delProjectCategory,
     addProjectUpdate, delProjectUpdate, projectUpdatesFor, projectNotes,
     apunteFolders, apunteDocs, apunteAudios,
-    addApunteFolder, renameApunteFolder, delApunteFolder, folderPath, convertNoteToDoc,
+    addApunteFolder, renameApunteFolder, delApunteFolder, folderPath, moveApunteFolder, moveApunteDoc, convertNoteToDoc,
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive,

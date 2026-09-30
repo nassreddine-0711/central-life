@@ -8,6 +8,7 @@
     "api/google-drive-tree.ts": { "maxDuration": 20 },
     "api/google-drive-create-folder.ts": { "maxDuration": 20 },
     "api/google-drive-delete.ts": { "maxDuration": 20 },
-    "api/google-drive-doc-status.ts": { "maxDuration": 30 }
+    "api/google-drive-doc-status.ts": { "maxDuration": 30 },
+    "api/google-drive-move.ts": { "maxDuration": 20 }
   }
 }

@@ -1,5 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import {
+  DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import {
   Folder, FolderPlus, FileText, Search, ChevronRight,
   Mic, Upload, Loader2, CheckCircle2, AlertCircle, Trash2, Pencil, ExternalLink, RefreshCw,
   Home, Plus, Link2,
@@ -12,7 +17,77 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { useCerebro } from "../CerebroContext";
 import { Section, Empty } from "../TaskComponents";
-import { ApunteDoc } from "../types";
+import { ApunteDoc, ApunteFolder } from "../types";
+
+/** Un punto de destino (carpeta o breadcrumb) para arrastrar carpetas/documentos encima. */
+function DropTarget({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={cn(className, isOver && "ring-2 ring-primary/60 bg-primary/10")}>
+      {children}
+    </div>
+  );
+}
+
+/** Tarjeta de carpeta: se puede arrastrar (para moverla) y también recibe carpetas/documentos soltados encima. */
+function FolderTile({ folder, count, onOpen }: { folder: ApunteFolder; count: number; onOpen: () => void }) {
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({ id: `folder:${folder.id}` });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `folder:${folder.id}` });
+  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+  return (
+    <button
+      ref={(node) => { setDragRef(node); setDropRef(node); }}
+      style={style}
+      {...listeners}
+      {...attributes}
+      onClick={onOpen}
+      className={cn(
+        "flex items-center gap-2 rounded-xl border bg-card/60 px-3 py-2 text-sm shadow-sm transition hover:border-primary/40",
+        isDragging && "z-50 opacity-60",
+        isOver && "border-primary/70 bg-primary/10 ring-2 ring-primary/40",
+      )}
+    >
+      <Folder className="h-4 w-4 text-primary" /> {folder.name}
+      {folder.driveFolderId && <span title="Sincronizada con Drive" className="text-emerald-500">•</span>}
+      <span className="text-[10px] text-muted-foreground">{count}</span>
+    </button>
+  );
+}
+
+/** Tarjeta de documento: solo se puede arrastrar (no recibe nada encima). */
+function DocTile({ doc, linkedCount, onOpen }: { doc: ApunteDoc; linkedCount: number; onOpen: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `doc:${doc.id}` });
+  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+  return (
+    <button
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      onClick={onOpen}
+      className={cn(
+        "rounded-xl border bg-card/60 p-3 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md",
+        isDragging && "z-50 opacity-60",
+      )}
+    >
+      <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
+        <FileText className="h-4 w-4 shrink-0 text-primary" />
+        {doc.title}
+        {doc.googleDocUrl && <ExternalLink className="h-3 w-3 shrink-0 text-emerald-500" />}
+      </p>
+      {doc.googleDocUrl ? (
+        <p className="mt-1 text-xs text-emerald-500">Google Docs</p>
+      ) : (
+        <p className="mt-1 text-xs text-amber-500">Creando en Drive…</p>
+      )}
+      {linkedCount > 0 && (
+        <div className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
+          <Mic className="h-3 w-3" /> {linkedCount} audio{linkedCount > 1 ? "s" : ""}
+        </div>
+      )}
+    </button>
+  );
+}
 
 /* ============================================================
    Archivo: un único árbol de carpetas (libre, tal como el usuario
@@ -44,6 +119,7 @@ export function ArchivoPanel() {
   const {
     apunteFolders, apunteDocs, apunteAudios,
     addApunteFolder, renameApunteFolder, delApunteFolder, folderPath,
+    moveApunteFolder, moveApunteDoc,
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive, refreshDriveFolders, refreshDocStatuses,
@@ -119,6 +195,30 @@ export function ArchivoPanel() {
   /* ---------- acciones ---------- */
   const openFolder = (id: string | null) => { setNode(id); setSearch(""); };
   const refreshAll = () => { refreshDriveFolders(); refreshDocStatuses(); };
+
+  /* ---------- arrastrar y soltar (mover carpetas/documentos) ---------- */
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (activeId === overId) return;
+
+    const [activeType, ...activeRest] = activeId.split(":");
+    const activeRealId = activeRest.join(":");
+    const [overType, ...overRest] = overId.split(":");
+    const overRealId = overRest.join(":");
+
+    let targetFolderId: string | null | undefined;
+    if (overType === "folder") targetFolderId = overRealId;
+    else if (overType === "crumb") targetFolderId = overRealId === "root" ? null : overRealId;
+    else return;
+
+    if (activeType === "folder") moveApunteFolder(activeRealId, targetFolderId);
+    else if (activeType === "doc") moveApunteDoc(activeRealId, targetFolderId);
+  };
 
   const createFolder = () => {
     if (!newFolderName.trim()) return;
@@ -223,108 +323,88 @@ export function ArchivoPanel() {
       )}
 
       {/* Caja grande: Archivo (carpetas + documentos) */}
-      <div className="space-y-4 rounded-2xl border-2 border-border bg-card/40 p-4 shadow-sm sm:p-6">
-        {/* Breadcrumb */}
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          {breadcrumb.map((b, i) => (
-            <span key={b.id ?? "root"} className="flex items-center gap-1.5">
-              {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
-              <button
-                onClick={() => setNode(b.id)}
-                className={cn(
-                  "flex items-center gap-1 rounded-full px-2.5 py-1",
-                  i === breadcrumb.length - 1 ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {i === 0 && <Home className="h-3 w-3" />}
-                {b.label}
-              </button>
-            </span>
-          ))}
-          {googleConnected && (
-            <button onClick={refreshAll} className="ml-1 rounded p-1 text-muted-foreground hover:text-foreground" title="Actualizar desde Drive">
-              <RefreshCw className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="relative min-w-[200px] flex-1">
-            <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar en esta carpeta…" className="pl-8" />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setNewFolderOpen(true)}>
-              <FolderPlus className="h-4 w-4" /> Carpeta
-            </Button>
-            <Button size="sm" variant="outline" onClick={openNewDoc}>
-              <Plus className="h-4 w-4" /> Documento
-            </Button>
-            {subfolders.length > 0 && (
-              <Button size="sm" variant="ghost" onClick={() => setManageFoldersOpen(true)}>
-                <Pencil className="h-4 w-4" /> Gestionar carpetas
-              </Button>
-            )}
-            {folderDocs.length > 0 && (
-              <Button size="sm" variant="ghost" onClick={() => setManageDocsOpen(true)}>
-                <Pencil className="h-4 w-4" /> Gestionar documentos
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Subcarpetas */}
-        {subfolders.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {subfolders.map(f => (
-              <button
-                key={f.id}
-                onClick={() => openFolder(f.id)}
-                className="flex items-center gap-2 rounded-xl border bg-card/60 px-3 py-2 text-sm shadow-sm transition hover:border-primary/40"
-              >
-                <Folder className="h-4 w-4 text-primary" /> {f.name}
-                {f.driveFolderId && <span title="Sincronizada con Drive" className="text-emerald-500">•</span>}
-                <span className="text-[10px] text-muted-foreground">{docCount(f.id)}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Documentos de la carpeta actual */}
-        {folderDocs.length === 0 && subfolders.length === 0 ? (
-          <Empty msg="Esta carpeta está vacía." />
-        ) : folderDocs.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {folderDocs.map(d => {
-              const linked = apunteAudios.filter(a => a.documentId === d.id);
-              return (
+      <DndContext sensors={dndSensors} onDragEnd={onDragEnd}>
+        <div className="space-y-4 rounded-2xl border-2 border-border bg-card/40 p-4 shadow-sm sm:p-6">
+          {/* Breadcrumb (también sirve para soltar carpetas/documentos y moverlos a un nivel superior) */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            {breadcrumb.map((b, i) => (
+              <DropTarget key={b.id ?? "root"} id={`crumb:${b.id ?? "root"}`} className="flex items-center gap-1.5 rounded-full">
+                {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
                 <button
-                  key={d.id}
-                  onClick={() => openDoc(d)}
-                  className="rounded-xl border bg-card/60 p-3 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md"
+                  onClick={() => setNode(b.id)}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full px-2.5 py-1",
+                    i === breadcrumb.length - 1 ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:text-foreground",
+                  )}
                 >
-                  <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
-                    <FileText className="h-4 w-4 shrink-0 text-primary" />
-                    {d.title}
-                    {d.googleDocUrl && <ExternalLink className="h-3 w-3 shrink-0 text-emerald-500" />}
-                  </p>
-                  {d.googleDocUrl ? (
-                    <p className="mt-1 text-xs text-emerald-500">Google Docs</p>
-                  ) : (
-                    <p className="mt-1 text-xs text-amber-500">Creando en Drive…</p>
-                  )}
-                  {linked.length > 0 && (
-                    <div className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <Mic className="h-3 w-3" /> {linked.length} audio{linked.length > 1 ? "s" : ""}
-                    </div>
-                  )}
+                  {i === 0 && <Home className="h-3 w-3" />}
+                  {b.label}
                 </button>
-              );
-            })}
+              </DropTarget>
+            ))}
+            {googleConnected && (
+              <button onClick={refreshAll} className="ml-1 rounded p-1 text-muted-foreground hover:text-foreground" title="Actualizar desde Drive">
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
-        ) : null}
-      </div>
+
+          {/* Toolbar */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar en esta carpeta…" className="pl-8" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setNewFolderOpen(true)}>
+                <FolderPlus className="h-4 w-4" /> Carpeta
+              </Button>
+              <Button size="sm" variant="outline" onClick={openNewDoc}>
+                <Plus className="h-4 w-4" /> Documento
+              </Button>
+              {subfolders.length > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => setManageFoldersOpen(true)}>
+                  <Pencil className="h-4 w-4" /> Gestionar carpetas
+                </Button>
+              )}
+              {folderDocs.length > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => setManageDocsOpen(true)}>
+                  <Pencil className="h-4 w-4" /> Gestionar documentos
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Subcarpetas (arrastrables y soltables) */}
+          {subfolders.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {subfolders.map(f => (
+                <FolderTile key={f.id} folder={f} count={docCount(f.id)} onOpen={() => openFolder(f.id)} />
+              ))}
+            </div>
+          )}
+
+          {/* Documentos de la carpeta actual (arrastrables) */}
+          {folderDocs.length === 0 && subfolders.length === 0 ? (
+            <Empty msg="Esta carpeta está vacía." />
+          ) : folderDocs.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {folderDocs.map(d => (
+                <DocTile
+                  key={d.id}
+                  doc={d}
+                  linkedCount={apunteAudios.filter(a => a.documentId === d.id).length}
+                  onOpen={() => openDoc(d)}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <p className="text-[11px] text-muted-foreground">
+            Consejo: arrastra una carpeta o un documento sobre otra carpeta para moverlo dentro, o sobre el nombre de un nivel superior en la ruta de arriba para sacarlo.
+          </p>
+        </div>
+      </DndContext>
 
       {/* Herramienta aparte: Audio a texto (cola de audios sin asignar) */}
       <Section
