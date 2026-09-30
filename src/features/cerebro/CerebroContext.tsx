@@ -64,7 +64,7 @@ interface CerebroCtx {
   convertNoteToDoc: (noteId: string) => Promise<void>;
   addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null }) => Promise<ApunteDoc | null>;
   updateApunteDoc: (id: string, patch: Partial<ApunteDoc>) => void;
-  delApunteDoc: (id: string) => void;
+  delApunteDoc: (id: string) => Promise<void>;
   updateApunteAudio: (id: string, patch: Partial<ApunteAudio>) => void;
   delApunteAudio: (id: string) => void;
   linkApunteAudio: (audioId: string, documentId: string | null) => void;
@@ -74,6 +74,7 @@ interface CerebroCtx {
   driveFolders: { id: string; name: string; parentId: string | null }[];
   driveRootId: string | null;
   refreshDriveFolders: () => void;
+  refreshDocStatuses: () => void;
   createDriveFolder: (name: string, parentId: string) => Promise<{ id: string; name: string; parentId: string | null } | null>;
 
   // Cross-section UI hooks
@@ -474,10 +475,52 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     setApunteDocs(prev => prev.map(d => d.id === id ? { ...d, ...patch, updatedAt: new Date().toISOString() } : d));
   }, []);
 
-  const delApunteDoc = useCallback((id: string) => {
+  const delApunteDoc: CerebroCtx["delApunteDoc"] = useCallback(async (id) => {
+    const doc = apunteDocs.find(d => d.id === id);
+    if (doc?.googleDocId && session?.access_token) {
+      try {
+        const res = await fetch("/api/google-drive-delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ fileId: doc.googleDocId }),
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          toast.error("No se pudo borrar el documento en Drive", { description: json?.error });
+          return; // no lo quitamos localmente si no se pudo borrar en Drive, para no desincronizar
+        }
+      } catch (e: any) {
+        toast.error("No se pudo borrar el documento en Drive", { description: e?.message });
+        return;
+      }
+    }
     setApunteDocs(prev => prev.filter(d => d.id !== id));
     setApunteAudios(prev => prev.map(a => a.documentId === id ? { ...a, documentId: null } : a));
-  }, []);
+  }, [apunteDocs, session]);
+
+  /** Detecta documentos borrados directamente en Drive (fuera de la web) y los refleja aquí. */
+  const refreshDocStatuses = useCallback(() => {
+    if (!session?.access_token) return;
+    const ids = apunteDocs.filter(d => d.googleDocId).map(d => d.googleDocId as string);
+    if (ids.length === 0) return;
+    fetch("/api/google-drive-doc-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ ids }),
+    })
+      .then(r => r.json())
+      .then(j => {
+        const removed: string[] = Array.isArray(j.removed) ? j.removed : [];
+        if (removed.length === 0) return;
+        const removedSet = new Set(removed);
+        setApunteDocs(prev => prev.filter(d => !(d.googleDocId && removedSet.has(d.googleDocId))));
+        setApunteAudios(prev => prev.map(a => {
+          const doc = apunteDocs.find(d => d.id === a.documentId);
+          return doc?.googleDocId && removedSet.has(doc.googleDocId) ? { ...a, documentId: null } : a;
+        }));
+      })
+      .catch(() => { /* se reintentará en el próximo refresco */ });
+  }, [session, apunteDocs]);
 
   const updateApunteAudio = useCallback((id: string, patch: Partial<ApunteAudio>) => {
     setApunteAudios(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
@@ -628,14 +671,14 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, [session]);
 
   useEffect(() => {
-    if (googleConnected) refreshDriveFolders();
-  }, [googleConnected, refreshDriveFolders]);
+    if (googleConnected) { refreshDriveFolders(); refreshDocStatuses(); }
+  }, [googleConnected, refreshDriveFolders, refreshDocStatuses]);
 
   useEffect(() => {
-    const onFocus = () => { if (googleConnected) refreshDriveFolders(); };
+    const onFocus = () => { if (googleConnected) { refreshDriveFolders(); refreshDocStatuses(); } };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [googleConnected, refreshDriveFolders]);
+  }, [googleConnected, refreshDriveFolders, refreshDocStatuses]);
 
   const createDriveFolder: CerebroCtx["createDriveFolder"] = useCallback(async (name, parentId) => {
     if (!session?.access_token) return null;
@@ -775,7 +818,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive,
-    driveFolders, driveRootId, refreshDriveFolders, createDriveFolder,
+    driveFolders, driveRootId, refreshDriveFolders, refreshDocStatuses, createDriveFolder,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     _noteSheetState: noteSheetState,
@@ -796,7 +839,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive,
-    driveFolders, driveRootId, refreshDriveFolders, createDriveFolder,
+    driveFolders, driveRootId, refreshDriveFolders, refreshDocStatuses, createDriveFolder,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     noteSheetState, taskDialogState, quickOpen,
