@@ -163,6 +163,20 @@ export function RutinasPanel() {
   const [editingCat, setEditingCat] = useState<RoutineCategory | null>(null);
   const [catDialogOpen, setCatDialogOpen] = useState(false);
 
+  // Reloj en vivo: qué día y qué media hora son "ahora", para marcarlo en la tabla.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const id = window.setInterval(tick, 30_000);
+    const onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
+  // DAYS empieza en Lunes (índice 0); Date#getDay() empieza en Domingo (0).
+  const todayIndex = (now.getDay() + 6) % 7;
+  const currentSlot = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
+  const nowLabel = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* */ }
   }, [state]);
@@ -538,15 +552,22 @@ export function RutinasPanel() {
               <div className="sticky top-0 z-20 border-b border-r border-border/60 bg-card/95 px-2 py-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground backdrop-blur">
                 Hora
               </div>
-              {DAYS.map((d, i) => (
-                <div
-                  key={d}
-                  className="sticky top-0 z-20 border-b border-border/60 bg-card/95 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-widest backdrop-blur"
-                  title={DAYS_FULL[i]}
-                >
-                  {d}
-                </div>
-              ))}
+              {DAYS.map((d, i) => {
+                const isToday = i === todayIndex;
+                return (
+                  <div
+                    key={d}
+                    className={cn(
+                      "sticky top-0 z-20 flex items-center justify-center gap-1 border-b border-border/60 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-widest backdrop-blur",
+                      isToday ? "bg-primary/15 text-primary" : "bg-card/95",
+                    )}
+                    title={isToday ? `${DAYS_FULL[i]} · hoy` : DAYS_FULL[i]}
+                  >
+                    {isToday && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />}
+                    {d}
+                  </div>
+                );
+              })}
 
               {/* Body */}
               {visibleSlots.map((slot) => (
@@ -561,6 +582,9 @@ export function RutinasPanel() {
                   showLabelAlways={!!state.showLabelsAlways}
                   labelSlots={labelSlots}
                   locked={locked}
+                  todayIndex={todayIndex}
+                  currentSlot={currentSlot}
+                  nowLabel={nowLabel}
                 />
               ))}
             </div>
@@ -751,6 +775,7 @@ export function RutinasPanel() {
 /* ---------- Single half-hour row (extracted to keep render light) ---------- */
 function FragmentRow({
   slot, blocks, catById, onMouseDown, onMouseEnter, boundaryLabel, showLabelAlways, labelSlots, locked,
+  todayIndex, currentSlot, nowLabel,
 }: {
   slot: number;
   blocks: Record<string, string>;
@@ -761,9 +786,13 @@ function FragmentRow({
   showLabelAlways: boolean;
   labelSlots: Set<string>;
   locked: boolean;
+  todayIndex: number;
+  currentSlot: number;
+  nowLabel: string;
 }) {
   const label = slotLabel(slot);
   const isHourMark = slot % 2 === 0;
+  const isNowRow = slot === currentSlot;
 
   return (
     <>
@@ -771,6 +800,14 @@ function FragmentRow({
         <div className="col-span-8 flex items-center gap-2 border-t-2 border-dashed border-t-primary/30 bg-primary/[0.03] px-2 py-0.5">
           <span className="text-[9px] font-semibold uppercase tracking-widest text-primary/70">{boundaryLabel}</span>
           <span className="h-px flex-1 bg-primary/15" />
+        </div>
+      )}
+      {isNowRow && (
+        <div className="col-span-8 relative flex items-center gap-2 px-2">
+          <span className="flex shrink-0 items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-rose-500">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-500" /> Ahora · {nowLabel}
+          </span>
+          <span className="h-0.5 flex-1 rounded-full bg-rose-500/70 shadow-[0_0_6px_hsl(0_84%_60%/0.6)]" />
         </div>
       )}
       <div
@@ -785,6 +822,8 @@ function FragmentRow({
         const key = `${day}-${slot}`;
         const catId = blocks[key];
         const cat = catId ? catById(catId) : undefined;
+        const isToday = day === todayIndex;
+        const isNowCell = isToday && isNowRow;
         return (
           <div
             key={day}
@@ -797,6 +836,8 @@ function FragmentRow({
               !cat && !locked && "bg-[repeating-linear-gradient(45deg,transparent_0_4px,hsl(var(--border)/0.25)_4px_5px)] hover:bg-primary/5",
               !cat && locked && "bg-[repeating-linear-gradient(45deg,transparent_0_4px,hsl(var(--border)/0.25)_4px_5px)]",
               cat && !locked && "hover:brightness-110",
+              isToday && !isNowCell && "ring-1 ring-inset ring-primary/25",
+              isNowCell && "ring-2 ring-inset ring-rose-500 z-[1]",
             )}
             style={cat ? { background: cat.color } : undefined}
             title={cat ? `${DAYS_FULL[day]} · ${label} — ${cat.name}` : `${DAYS_FULL[day]} · ${label}`}
@@ -812,6 +853,9 @@ function FragmentRow({
               >
                 {cat.name.slice(0, 10)}
               </span>
+            )}
+            {isNowCell && (
+              <span className="pointer-events-none absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-rose-500 shadow-[0_0_6px_hsl(0_84%_60%/0.8)]" />
             )}
           </div>
         );
