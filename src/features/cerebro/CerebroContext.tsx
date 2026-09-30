@@ -62,7 +62,7 @@ interface CerebroCtx {
   delApunteFolder: (id: string) => void;
   folderPath: (folderId?: string | null) => ApunteFolder[];
   convertNoteToDoc: (noteId: string) => Promise<void>;
-  addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null }) => Promise<ApunteDoc>;
+  addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null }) => Promise<ApunteDoc | null>;
   updateApunteDoc: (id: string, patch: Partial<ApunteDoc>) => void;
   delApunteDoc: (id: string) => void;
   updateApunteAudio: (id: string, patch: Partial<ApunteAudio>) => void;
@@ -398,76 +398,77 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     return chain;
   }, [apunteFolders]);
 
-  const convertNoteToDoc: CerebroCtx["convertNoteToDoc"] = useCallback(async (noteId) => {
-    if (!session?.access_token) {
-      toast.error("Conecta Google Drive primero", { description: "Ve a Apuntes o Archivo para conectarlo." });
-      return;
-    }
-    const note = notes.find(n => n.id === noteId);
-    if (!note) return;
+  /** Crea un Google Doc real (en la carpeta de Drive dada, si la hay) y le pega el contenido inicial. */
+  const createGoogleDoc = useCallback(async (
+    title: string,
+    folderDriveId?: string | null,
+    content?: string
+  ): Promise<{ googleDocId: string; googleDocUrl: string } | null> => {
+    if (!session?.access_token) return null;
     try {
-      const folderDriveId = note.folderId ? apunteFolders.find(f => f.id === note.folderId)?.driveFolderId : undefined;
       const res = await fetch("/api/google-docs-create", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ title: note.title, folderId: folderDriveId || undefined }),
+        body: JSON.stringify({ title, folderId: folderDriveId || undefined }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.googleDocId) {
         toast.error("No se pudo crear el Google Doc", { description: json?.error });
-        return;
+        return null;
       }
-      if (note.content?.trim()) {
+      if (content?.trim()) {
         await fetch("/api/google-docs-append", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ googleDocId: json.googleDocId, text: note.content }),
+          body: JSON.stringify({ googleDocId: json.googleDocId, text: content }),
         }).catch(() => {});
       }
-      setNotes(prev => prev.map(n => n.id === noteId ? { ...n, googleDocId: json.googleDocId, googleDocUrl: json.googleDocUrl } : n));
-      toast.success("Convertido a Google Doc", { description: note.title });
+      return { googleDocId: json.googleDocId, googleDocUrl: json.googleDocUrl };
     } catch (e: any) {
       toast.error("No se pudo crear el Google Doc", { description: e?.message });
+      return null;
     }
-  }, [session, notes, apunteFolders]);
+  }, [session]);
+
+  const convertNoteToDoc: CerebroCtx["convertNoteToDoc"] = useCallback(async (noteId) => {
+    if (!session?.access_token) {
+      toast.error("Conecta Google Drive primero", { description: "Ve a Archivo para conectarlo." });
+      return;
+    }
+    const note = notes.find(n => n.id === noteId);
+    if (!note) return;
+    const folderDriveId = note.folderId ? apunteFolders.find(f => f.id === note.folderId)?.driveFolderId : undefined;
+    const created = await createGoogleDoc(note.title, folderDriveId, note.content);
+    if (!created) return;
+    setNotes(prev => prev.map(n => n.id === noteId ? { ...n, googleDocId: created.googleDocId, googleDocUrl: created.googleDocUrl } : n));
+    toast.success("Convertido a Google Doc", { description: note.title });
+  }, [session, notes, apunteFolders, createGoogleDoc]);
 
   const addApunteDoc: CerebroCtx["addApunteDoc"] = useCallback(async (partial) => {
-    const now = new Date().toISOString();
-    let googleDocId: string | undefined;
-    let googleDocUrl: string | undefined;
-
-    if (googleConnected && session?.access_token) {
-      try {
-        const res = await fetch("/api/google-docs-create", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ title: partial.title, folderId: partial.folderId || undefined }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (res.ok) {
-          googleDocId = json.googleDocId;
-          googleDocUrl = json.googleDocUrl;
-        } else {
-          toast.error("No se pudo crear el Google Doc", { description: json?.error || "Se guardó como apunte local." });
-        }
-      } catch (e: any) {
-        toast.error("No se pudo crear el Google Doc", { description: e?.message || "Se guardó como apunte local." });
-      }
+    if (!googleConnected || !session?.access_token) {
+      toast.error("Conecta Google Drive primero", { description: "Necesitas Drive conectado para crear documentos." });
+      return null;
     }
+    const folderDriveId = partial.folderId
+      ? apunteFolders.find(f => f.id === partial.folderId)?.driveFolderId
+      : driveRootId;
+    const created = await createGoogleDoc(partial.title, folderDriveId, partial.content);
+    if (!created) return null;
 
+    const now = new Date().toISOString();
     const d: ApunteDoc = {
       id: uid(),
       folderId: partial.folderId ?? null,
       title: partial.title.trim() || "Sin título",
-      content: googleDocId ? "" : (partial.content ?? ""),
-      googleDocId,
-      googleDocUrl,
+      content: "",
+      googleDocId: created.googleDocId,
+      googleDocUrl: created.googleDocUrl,
       createdAt: now,
       updatedAt: now,
     };
     setApunteDocs(prev => [d, ...prev]);
     return d;
-  }, [googleConnected, session]);
+  }, [googleConnected, session, apunteFolders, driveRootId, createGoogleDoc]);
 
   const updateApunteDoc = useCallback((id: string, patch: Partial<ApunteDoc>) => {
     setApunteDocs(prev => prev.map(d => d.id === id ? { ...d, ...patch, updatedAt: new Date().toISOString() } : d));
@@ -709,6 +710,49 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       });
     });
   }, [apunteFolders, googleConnected, driveRootId, session, createDriveFolder]);
+
+  // Migración de documentos antiguos: ahora Archivo ya no distingue notas/referencias,
+  // todo es "documento" y vive siempre como Google Doc. Las notas/referencias que ya
+  // estaban archivadas en una carpeta se convierten en documentos reales (se crea su
+  // Google Doc y se elimina la nota, que queda sustituida por el documento). Los
+  // documentos que ya existían pero nunca llegaron a crearse en Drive (porque la
+  // conexión no funcionaba) se crean ahora también.
+  const legacyBackfillInFlight = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!googleConnected || !session?.access_token) return;
+
+    const notesToMigrate = notes.filter(n => n.folderId && !legacyBackfillInFlight.current.has(`note:${n.id}`));
+    notesToMigrate.forEach(n => {
+      const folderDriveId = n.folderId ? apunteFolders.find(f => f.id === n.folderId)?.driveFolderId : driveRootId;
+      if (!folderDriveId) return; // la carpeta todavía no tiene su Drive id; se reintenta cuando lo tenga
+      legacyBackfillInFlight.current.add(`note:${n.id}`);
+      createGoogleDoc(n.title, folderDriveId, n.content).then(created => {
+        legacyBackfillInFlight.current.delete(`note:${n.id}`);
+        if (!created) return;
+        const now = new Date().toISOString();
+        setApunteDocs(prev => [{
+          id: uid(), folderId: n.folderId ?? null, title: n.title, content: "",
+          googleDocId: created.googleDocId, googleDocUrl: created.googleDocUrl,
+          createdAt: n.createdAt || now, updatedAt: now,
+        }, ...prev]);
+        setNotes(prev => prev.filter(x => x.id !== n.id));
+      });
+    });
+
+    const docsToBackfill = apunteDocs.filter(d => !d.googleDocId && !legacyBackfillInFlight.current.has(`doc:${d.id}`));
+    docsToBackfill.forEach(d => {
+      const folderDriveId = d.folderId ? apunteFolders.find(f => f.id === d.folderId)?.driveFolderId : driveRootId;
+      if (!folderDriveId) return;
+      legacyBackfillInFlight.current.add(`doc:${d.id}`);
+      createGoogleDoc(d.title, folderDriveId, d.content).then(created => {
+        legacyBackfillInFlight.current.delete(`doc:${d.id}`);
+        if (!created) return;
+        setApunteDocs(prev => prev.map(x => x.id === d.id
+          ? { ...x, googleDocId: created.googleDocId, googleDocUrl: created.googleDocUrl, content: "" }
+          : x));
+      });
+    });
+  }, [googleConnected, session, notes, apunteDocs, apunteFolders, driveRootId, createGoogleDoc]);
 
   const tasksByMilestone = useCallback((id: string) => tasks.filter(t => t.linkedMilestoneId === id), [tasks]);
   const notesByMilestone = useCallback((id: string) => notes.filter(n => n.linkedTo?.kind === "milestone" && n.linkedTo.id === id), [notes]);
