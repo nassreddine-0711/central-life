@@ -130,6 +130,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const createDriveFolderRef = useRef<((name: string, parentId: string) => Promise<{ id: string; name: string; parentId: string | null } | null>) | null>(null);
   const [driveFolders, setDriveFolders] = useState<{ id: string; name: string; parentId: string | null }[]>([]);
   const [driveRootId, setDriveRootId] = useState<string | null>(null);
+  const backfillInFlight = useRef<Set<string>>(new Set());
   const [apunteDocs, setApunteDocs] = useState<ApunteDoc[]>(() => load(APUNTE_DOCS_KEY, []));
   const [apunteAudios, setApunteAudios] = useState<ApunteAudio[]>(() => load(APUNTE_AUDIOS_KEY, []));
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
@@ -685,6 +686,29 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       return [...prev, ...additions];
     });
   }, [driveFolders, driveRootId, googleConnected]);
+
+  // Sincronización inicial (local → Drive): carpetas creadas antes de que la conexión
+  // con Google Drive funcionara nunca llegaron a espejarse allí. En cuanto detectamos
+  // conexión, creamos en Drive cualquier carpeta local que todavía no tenga pareja,
+  // respetando la jerarquía (primero el padre, luego los hijos, en pasadas sucesivas
+  // a medida que cada creación deja al siguiente nivel listo para continuar).
+  useEffect(() => {
+    if (!googleConnected || !driveRootId || !session?.access_token) return;
+    const pending = apunteFolders.filter(f => !f.driveFolderId && !backfillInFlight.current.has(f.id));
+    pending.forEach(f => {
+      const parentDriveId = f.parentId
+        ? apunteFolders.find(x => x.id === f.parentId)?.driveFolderId
+        : driveRootId;
+      if (!parentDriveId) return; // el padre todavía no tiene carpeta en Drive; se reintenta cuando la tenga
+      backfillInFlight.current.add(f.id);
+      createDriveFolder(f.name, parentDriveId).then(drive => {
+        backfillInFlight.current.delete(f.id);
+        if (drive) {
+          setApunteFolders(prev => prev.map(x => x.id === f.id ? { ...x, driveFolderId: drive.id } : x));
+        }
+      });
+    });
+  }, [apunteFolders, googleConnected, driveRootId, session, createDriveFolder]);
 
   const tasksByMilestone = useCallback((id: string) => tasks.filter(t => t.linkedMilestoneId === id), [tasks]);
   const notesByMilestone = useCallback((id: string) => notes.filter(n => n.linkedTo?.kind === "milestone" && n.linkedTo.id === id), [notes]);
