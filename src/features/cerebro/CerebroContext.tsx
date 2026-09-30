@@ -70,7 +70,7 @@ interface CerebroCtx {
   updateApunteAudio: (id: string, patch: Partial<ApunteAudio>) => void;
   delApunteAudio: (id: string) => void;
   linkApunteAudio: (audioId: string, documentId: string | null) => void;
-  uploadApunteAudio: (file: File, opts?: { title?: string; documentId?: string | null }) => Promise<ApunteAudio>;
+  uploadApunteAudio: (file: File, opts?: { title?: string; documentId?: string | null; folderId?: string | null }) => Promise<ApunteAudio>;
   googleConnected: boolean;
   connectGoogleDrive: () => void;
   driveFolders: { id: string; name: string; parentId: string | null }[];
@@ -81,7 +81,7 @@ interface CerebroCtx {
 
   // Cross-section UI hooks
   openNoteSheet: (opts?: { linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }) => void;
-  openTaskDialog: (opts?: { linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; editId?: string }) => void;
+  openTaskDialog: (opts?: { linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; editId?: string }) => void;
   openQuickCapture: () => void;
   createTaskFromNote: (note: Note) => void;
 
@@ -93,7 +93,7 @@ interface CerebroCtx {
   // internal modal state (consumed by mounted dialogs)
   _noteSheetState: { open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string };
   _setNoteSheetOpen: (open: boolean) => void;
-  _taskDialogState: { open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; editId?: string };
+  _taskDialogState: { open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; editId?: string };
   _setTaskDialogOpen: (open: boolean) => void;
   _quickOpen: boolean;
   _setQuickOpen: (open: boolean) => void;
@@ -138,7 +138,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
 
   const [noteSheetState, setNoteSheetState] = useState<{ open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }>({ open: false });
-  const [taskDialogState, setTaskDialogState] = useState<{ open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; editId?: string }>({ open: false });
+  const [taskDialogState, setTaskDialogState] = useState<{ open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; editId?: string }>({ open: false });
   const [quickOpen, setQuickOpen] = useState(false);
 
   const saveLocal = useCallback((key: string, value: unknown, label: string) => {
@@ -197,7 +197,11 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       linkedMilestoneId: partial.linkedMilestoneId,
       recurrence: partial.recurrence,
       projectId: partial.projectId,
-      stage: partial.projectId ? (partial.stage ?? "todo") : undefined,
+      // Kanban del proyecto: sin fecha se queda "sin empezar"; si ya trae una fecha
+      // asignada (p. ej. creada desde el inbox) pasa directamente a "en curso".
+      // Un stage explícito (p. ej. al añadir la tarjeta directamente en una columna
+      // del kanban) siempre tiene prioridad.
+      stage: partial.projectId ? (partial.stage ?? (partial.date ? "doing" : "todo")) : undefined,
     };
     setTasks(prev => [t, ...prev]);
     return t;
@@ -211,7 +215,9 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
         setFadingIds(s => { const n = new Set(s); n.add(id); return n; });
         window.setTimeout(() => {
           setTasks(p => {
-            const updated = p.map(x => x.id === id ? { ...x, done: true, completedAt: new Date().toISOString() } : x);
+            const updated = p.map(x => x.id === id
+              ? { ...x, done: true, completedAt: new Date().toISOString(), stage: x.projectId ? "done" as const : x.stage }
+              : x);
             // Spawn next occurrence if recurring
             if (t.recurrence) {
               const base = t.date ? new Date(t.date) : new Date();
@@ -233,12 +239,27 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
         }, 320);
         return prev;
       }
-      return prev.map(x => x.id === id ? { ...x, done: false, completedAt: undefined } : x);
+      // Al reabrir una tarea de proyecto que estaba "terminada", vuelve a "en curso"
+      // si tiene fecha asignada, o a "sin empezar" si no.
+      return prev.map(x => x.id === id
+        ? { ...x, done: false, completedAt: undefined, stage: x.projectId ? (x.date ? "doing" as const : "todo" as const) : x.stage }
+        : x);
     });
   }, []);
 
   const delTask = useCallback((id: string) => setTasks(t => t.filter(x => x.id !== id)), []);
-  const updateTask = useCallback((id: string, patch: Partial<Task>) => setTasks(t => t.map(x => x.id === id ? { ...x, ...patch } : x)), []);
+
+  const updateTask = useCallback((id: string, patch: Partial<Task>) => setTasks(t => t.map(x => {
+    if (x.id !== id) return x;
+    const next = { ...x, ...patch };
+    // Si la tarea pertenece a un proyecto y este cambio toca la fecha, la fecha
+    // manda sobre la columna del kanban — salvo que esté "bloqueada" o "terminada"
+    // (esas dos son estados manuales/excepcionales que no debe pisar la fecha).
+    if (next.projectId && "date" in patch && next.stage !== "blocked" && next.stage !== "done") {
+      next.stage = next.date ? "doing" : "todo";
+    }
+    return next;
+  })), []);
 
   const addNote = useCallback((n: Note) => setNotes(prev => [n, ...prev]), []);
   const updateNote = useCallback((id: string, patch: Partial<Note>) => setNotes(ns => ns.map(n => n.id === id ? { ...n, ...patch } : n)), []);
@@ -268,7 +289,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openTaskDialog: CerebroCtx["openTaskDialog"] = useCallback((opts) => {
-    setTaskDialogState({ open: true, linkedNoteId: opts?.linkedNoteId, linkedMilestoneId: opts?.linkedMilestoneId, defaultTitle: opts?.defaultTitle, editId: opts?.editId });
+    setTaskDialogState({ open: true, linkedNoteId: opts?.linkedNoteId, linkedMilestoneId: opts?.linkedMilestoneId, defaultTitle: opts?.defaultTitle, defaultDate: opts?.defaultDate, editId: opts?.editId });
   }, []);
 
   const openQuickCapture = useCallback(() => setQuickOpen(true), []);
@@ -321,8 +342,26 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     return { done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
   }, [tasks]);
 
+  /** Mueve una tarea a otra columna del kanban del proyecto (arrastrar y soltar).
+   *  "Bloqueada" es manual y excepcional: le quita la fecha asignada (si tenía) para
+   *  que la tarea aparezca en Atrasadas, dentro del foco de tareas. "Terminadas"
+   *  marca la tarea como hecha; salir de "Terminadas" la reabre. */
   const moveTaskStage = useCallback((taskId: string, stage: ProjectStage) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stage, done: stage === "done" ? true : t.done } : t));
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t;
+      const patch: Partial<Task> = { stage };
+      if (stage === "blocked") {
+        patch.date = undefined;
+      }
+      if (stage === "done") {
+        patch.done = true;
+        patch.completedAt = t.completedAt ?? new Date().toISOString();
+      } else if (t.done) {
+        patch.done = false;
+        patch.completedAt = undefined;
+      }
+      return { ...t, ...patch };
+    }));
   }, []);
 
   const projectByGoalId = useCallback((goalId: string) => projects.find(p => p.linkedGoalId === goalId), [projects]);
@@ -594,6 +633,9 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       title: (opts?.title || file.name.replace(/\.[^.]+$/, "")).trim() || file.name,
       storagePath: "",
       documentId: opts?.documentId ?? null,
+      // Sin especificar: el audio se queda "sin clasificar" (vive en la carpeta
+      // virtual "Audio a texto") hasta que el usuario lo archive en una carpeta real.
+      folderId: opts?.folderId,
       status: "uploading",
       createdAt: now,
     };

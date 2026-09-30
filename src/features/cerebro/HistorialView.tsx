@@ -131,7 +131,7 @@ export function HistorialView({ tasks, onUncomplete, onDelete }: { tasks: Task[]
                   <h4 className="text-sm font-semibold capitalize">{dayLabel(dayKey)}</h4>
                   <span className="text-xs text-muted-foreground">· {items.length}</span>
                 </div>
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {items.map(t => (
                     <div key={t.id} className="group relative flex items-center gap-3 rounded-lg border bg-background/60 p-3 transition-colors hover:border-primary/40">
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">

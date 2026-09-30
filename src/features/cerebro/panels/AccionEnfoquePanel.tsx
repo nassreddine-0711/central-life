@@ -26,7 +26,9 @@ function FocoPanel() {
   };
 
   const inbox = tasks.filter(t => t.inbox && !t.done);
-  const overdue = tasks.filter(t => !t.done && t.date && isBefore(new Date(t.date), startOfDay(new Date())));
+  // Atrasadas: tareas con fecha ya pasada, más las tareas de proyecto marcadas como
+  // "bloqueada" (caso excepcional y manual, sin fecha propia, que también se gestiona aquí).
+  const overdue = tasks.filter(t => !t.done && ((t.date && isBefore(new Date(t.date), startOfDay(new Date()))) || t.stage === "blocked"));
 
   const pending = tasks.filter(t => !t.done);
   const byPrio = {
@@ -96,7 +98,14 @@ function FocoPanel() {
                     <Plus className="h-4 w-4" /> Nueva tarea
                   </Button>
                 </div>
-                <WeekView tasks={tasks} fadingIds={fadingIds} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
+                <WeekView
+                  tasks={tasks}
+                  fadingIds={fadingIds}
+                  onToggle={toggleTask}
+                  onDelete={delTask}
+                  onUpdate={updateTask}
+                  onNewTask={(d) => openTaskDialog({ defaultDate: d.toISOString() })}
+                />
               </TabsContent>
 
               <TabsContent value="month" className="mt-0">
@@ -124,7 +133,7 @@ function FocoPanel() {
                   >
                     {byPrio[p].length === 0
                       ? <Empty msg="Sin pendientes." />
-                      : <TaskList tasks={byPrio[p]} fadingIds={fadingIds} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
+                      : <TaskList tasks={byPrio[p]} fadingIds={fadingIds} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} columns={2} />
                     }
                   </Section>
                 ))}

@@ -58,12 +58,12 @@ export function TaskDialog() {
         setCategory("Personal");
         setPriority("med");
         setComplexity("quick");
-        setDate(new Date());
+        setDate(state.defaultDate ? new Date(state.defaultDate) : new Date());
         setRecurrence(undefined);
         setProjectId(undefined);
       }
     }
-  }, [state.open, state.defaultTitle, editing]);
+  }, [state.open, state.defaultTitle, state.defaultDate, editing]);
 
   const onPhotoFile = async (file?: File) => {
     if (!file) return;
@@ -87,7 +87,13 @@ export function TaskDialog() {
         date: date?.toISOString(),
         recurrence,
         projectId,
-        stage: projectId ? (editing.projectId === projectId ? editing.stage ?? "todo" : "todo") : undefined,
+        // "Bloqueada" y "Terminada" son manuales/excepcionales: se conservan si el
+        // proyecto no cambia. El resto de columnas las decide la fecha asignada.
+        stage: projectId
+          ? (editing.projectId === projectId && (editing.stage === "blocked" || editing.stage === "done")
+            ? editing.stage
+            : (date ? "doing" : "todo"))
+          : undefined,
       });
     } else {
       addTask({

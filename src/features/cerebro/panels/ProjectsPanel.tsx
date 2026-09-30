@@ -220,6 +220,51 @@ function ManageProjectCategoriesDialog({ open, onOpenChange }: { open: boolean; 
   );
 }
 
+/* ---------- Kanban interno de tareas de un proyecto (arrastrar y soltar entre columnas) ---------- */
+function TaskCardMini({ task, onOpen, onDelete }: { task: { id: string; title: string }; onOpen: () => void; onDelete: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `task:${task.id}` });
+  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      onClick={onOpen}
+      className={cn(
+        "group cursor-grab touch-none rounded-lg border bg-card/70 p-2 text-xs transition active:cursor-grabbing",
+        isDragging && "z-50 opacity-60 shadow-lg",
+      )}
+    >
+      <div className="flex items-start gap-1">
+        <p className="min-w-0 flex-1 truncate font-medium" title={task.title}>{task.title}</p>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StageColumn({ stageKey, label, count, children }: { stageKey: ProjectStage; label: string; count: number; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `stage:${stageKey}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex flex-col gap-2 rounded-xl border bg-background/40 p-2.5 transition-colors",
+        isOver && "border-primary/60 bg-primary/5 ring-1 ring-primary/30",
+      )}
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label} · {count}</p>
+      <div className="flex min-h-[32px] flex-col gap-1.5">{children}</div>
+    </div>
+  );
+}
+
 /* ---------- Pop-up de proyecto abierto (kanban interno + updates + archivos) ---------- */
 function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const {
@@ -245,6 +290,18 @@ function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () =
     if (!title) return;
     addTask({ title, projectId: project.id, stage, category: "Otros", priority: "med" });
     setNewCardTitle(s => ({ ...s, [stage]: "" }));
+  };
+
+  const taskDndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const onTaskDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (!activeId.startsWith("task:") || !overId.startsWith("stage:")) return;
+    const taskId = activeId.slice("task:".length);
+    const stage = overId.slice("stage:".length) as ProjectStage;
+    moveTaskStage(taskId, stage);
   };
 
   return (
@@ -280,31 +337,13 @@ function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () =
                   <ListTodo className="h-4 w-4 text-primary" />
                   <p className="text-sm font-semibold">Tareas del proyecto</p>
                 </div>
+                <DndContext sensors={taskDndSensors} onDragEnd={onTaskDragEnd}>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {PROJECT_STAGES.map(({ key, label }) => (
-                    <div key={key} className="flex flex-col gap-2 rounded-xl border bg-background/40 p-2.5">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label} · {tasks.filter(t => t.stage === key).length}</p>
-                      <div className="flex flex-col gap-1.5">
-                        {tasks.filter(t => t.stage === key).map(t => (
-                          <div key={t.id} className="group rounded-lg border bg-card/70 p-2 text-xs">
-                            <p className="cursor-pointer truncate font-medium" onClick={() => openTaskDialog({ editId: t.id })} title={t.title}>{t.title}</p>
-                            <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                              {PROJECT_STAGES.filter(s => s.key !== key).map(s => (
-                                <button
-                                  key={s.key}
-                                  onClick={() => moveTaskStage(t.id, s.key)}
-                                  className="rounded border px-1.5 py-0.5 text-[9px] text-muted-foreground hover:border-primary/40 hover:text-primary"
-                                >
-                                  → {s.label}
-                                </button>
-                              ))}
-                              <button onClick={() => delTask(t.id)} className="ml-auto rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500">
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                    <StageColumn key={key} stageKey={key} label={label} count={tasks.filter(t => t.stage === key).length}>
+                      {tasks.filter(t => t.stage === key).map(t => (
+                        <TaskCardMini key={t.id} task={t} onOpen={() => openTaskDialog({ editId: t.id })} onDelete={() => delTask(t.id)} />
+                      ))}
                       <div className="flex gap-1">
                         <Input
                           value={newCardTitle[key]}
@@ -314,9 +353,10 @@ function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () =
                           className="h-7 text-[11px]"
                         />
                       </div>
-                    </div>
+                    </StageColumn>
                   ))}
                 </div>
+                </DndContext>
               </div>
             </div>
 
@@ -448,6 +488,19 @@ export function ProjectsPanel() {
         </Button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-card/70 p-2 shadow-sm backdrop-blur-sm">
+        <Input
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addQuick()}
+          placeholder="Nuevo proyecto o idea… (va al Inbox)"
+          className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+        />
+        <Button onClick={addQuick} size="sm" disabled={!newTitle.trim()}>
+          <Plus className="h-4 w-4" /> Añadir
+        </Button>
+      </div>
+
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         {/* Kanban superior */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -478,19 +531,6 @@ export function ProjectsPanel() {
           )}
         </DragOverlay>
       </DndContext>
-
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-card/70 p-2 shadow-sm backdrop-blur-sm">
-        <Input
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addQuick()}
-          placeholder="Nuevo proyecto o idea… (va al Inbox)"
-          className="border-0 bg-transparent shadow-none focus-visible:ring-0"
-        />
-        <Button onClick={addQuick} size="sm" disabled={!newTitle.trim()}>
-          <Plus className="h-4 w-4" /> Añadir
-        </Button>
-      </div>
 
       {openProjectId && <ProjectModal projectId={openProjectId} onClose={() => setOpenProjectId(null)} />}
       <ManageProjectCategoriesDialog open={manageCatsOpen} onOpenChange={setManageCatsOpen} />

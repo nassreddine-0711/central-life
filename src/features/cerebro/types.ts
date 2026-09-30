@@ -145,6 +145,8 @@ export interface ApunteAudio {
   title: string;
   storagePath: string;
   documentId?: string | null;
+  /** Carpeta del árbol de Archivo en la que está clasificado este audio (null/undefined = sin clasificar todavía, vive en "Audio a texto"). */
+  folderId?: string | null;
   status: ApunteAudioStatus;
   transcriptionId?: string;
   transcript?: string;

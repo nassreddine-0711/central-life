@@ -197,7 +197,7 @@ export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate, colum
   );
 }
 
-export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; }) {
+export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNewTask }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; onNewTask?: (date: Date) => void; }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
@@ -236,9 +236,28 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate }: { t
               key={d.toISOString()}
               title={format(d, "EEEE d MMM", { locale: es })}
               className={today ? "border-primary/60 ring-1 ring-primary/20 bg-primary/[0.03]" : undefined}
-              action={today ? <Badge className="h-5 bg-primary/15 text-[10px] text-primary hover:bg-primary/15">Hoy</Badge> : undefined}
+              action={
+                <>
+                  {today && <Badge className="h-5 bg-primary/15 text-[10px] text-primary hover:bg-primary/15">Hoy</Badge>}
+                  {onNewTask && (
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onNewTask(d)} title="Nueva tarea este día">
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </>
+              }
             >
-              {list.length === 0 ? <Empty msg="Sin tareas." /> : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} columns={2} />}
+              {list.length === 0 ? (
+                onNewTask ? (
+                  <button
+                    type="button"
+                    onClick={() => onNewTask(d)}
+                    className="w-full rounded-lg border border-dashed border-border py-6 text-center text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                  >
+                    Sin tareas. Toca para añadir una.
+                  </button>
+                ) : <Empty msg="Sin tareas." />
+              ) : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} columns={2} />}
             </Section>
           );
         })}
