@@ -5,10 +5,21 @@
 ============================================================ */
 import { createClient } from "@supabase/supabase-js";
 
-export function getBaseUrl(req: any): string {
-  const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-  const host = (req.headers["x-forwarded-host"] as string) || req.headers.host;
-  return `${proto}://${host}`;
+/**
+ * Dominio público y fijo de la app (no depende del host de la petición).
+ *
+ * Vercel genera, además del dominio de producción, una URL única por cada
+ * despliegue (tipo central-life-<hash>-central-life.vercel.app). Si este
+ * valor se calculara a partir de los headers de la petición entrante, el
+ * redirect_uri que le mandamos a Google cambiaría cada vez que alguien
+ * entra por una de esas URLs de despliegue — y Google solo acepta el/los
+ * URI(s) exactos registrados en la consola, así que el login fallaría con
+ * redirect_uri_mismatch. Por eso lo fijamos aquí: siempre el mismo dominio,
+ * el que está registrado en Google Cloud (configurable vía APP_BASE_URL
+ * por si el dominio cambia en el futuro, p. ej. un dominio propio).
+ */
+export function getBaseUrl(_req?: any): string {
+  return process.env.APP_BASE_URL || "https://central-life.vercel.app";
 }
 
 export function supabaseAdmin() {
