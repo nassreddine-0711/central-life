@@ -70,7 +70,7 @@ interface CerebroCtx {
   updateApunteAudio: (id: string, patch: Partial<ApunteAudio>) => void;
   delApunteAudio: (id: string) => void;
   linkApunteAudio: (audioId: string, documentId: string | null) => void;
-  uploadApunteAudio: (file: File, opts?: { title?: string; documentId?: string | null; folderId?: string | null }) => Promise<ApunteAudio>;
+  uploadApunteAudio: (file: File, opts?: { title?: string; documentId?: string | null }) => Promise<ApunteAudio>;
   googleConnected: boolean;
   connectGoogleDrive: () => void;
   driveFolders: { id: string; name: string; parentId: string | null }[];
@@ -633,9 +633,6 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       title: (opts?.title || file.name.replace(/\.[^.]+$/, "")).trim() || file.name,
       storagePath: "",
       documentId: opts?.documentId ?? null,
-      // Sin especificar: el audio se queda "sin clasificar" (vive en la carpeta
-      // virtual "Audio a texto") hasta que el usuario lo archive en una carpeta real.
-      folderId: opts?.folderId,
       status: "uploading",
       createdAt: now,
     };

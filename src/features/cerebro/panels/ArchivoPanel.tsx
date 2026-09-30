@@ -16,8 +16,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useCerebro } from "../CerebroContext";
-import { Empty } from "../TaskComponents";
-import { ApunteAudio, ApunteDoc, ApunteFolder } from "../types";
+import { Section, Empty } from "../TaskComponents";
+import { ApunteDoc, ApunteFolder } from "../types";
 
 /** Un punto de destino (carpeta o breadcrumb) para arrastrar carpetas/documentos encima. */
 function DropTarget({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
@@ -89,57 +89,20 @@ function DocTile({ doc, linkedCount, onOpen }: { doc: ApunteDoc; linkedCount: nu
   );
 }
 
-/** Tarjeta de audio clasificado en una carpeta: arrastrable igual que un documento. */
-function AudioTile({ audio }: { audio: ApunteAudio }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `audio:${audio.id}` });
-  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
-  const meta = statusMeta(audio.status);
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className={cn(
-        "cursor-grab touch-none rounded-xl border bg-card/60 p-3 text-left shadow-sm transition active:cursor-grabbing hover:border-primary/40",
-        isDragging && "z-50 opacity-60",
-      )}
-    >
-      <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
-        <Mic className="h-4 w-4 shrink-0 text-primary" />
-        {audio.title}
-      </p>
-      <p className={cn("mt-1 flex items-center gap-1 text-[11px]", meta.cls)}>
-        {meta.icon} {meta.label}{audio.errorMessage ? ` · ${audio.errorMessage}` : ""}
-      </p>
-      {audio.status === "completed" && (audio.summary || audio.transcript) && (
-        <details className="mt-2" onClick={(e) => e.stopPropagation()}>
-          <summary className="cursor-pointer text-[11px] text-primary">Ver transcripción</summary>
-          <div className="mt-2 space-y-2 text-[11px] text-muted-foreground">
-            {audio.summary && <div className="whitespace-pre-wrap rounded-lg bg-background/60 p-2">{audio.summary}</div>}
-            {audio.transcript && <div className="whitespace-pre-wrap rounded-lg bg-background/40 p-2">{audio.transcript}</div>}
-          </div>
-        </details>
-      )}
-    </div>
-  );
-}
-
 /* ============================================================
    Archivo: un único árbol de carpetas (libre, tal como el usuario
    lo organice). Dentro de cada carpeta solo hay "documentos" (ya
    no se separan notas/referencias/apuntes: todo es lo mismo) y
    cada documento vive directamente como Google Doc — al abrirlo
    se redirige a Drive para editarlo allí.
-   La transcripción de audio a texto es una carpeta más (pinchable,
-   igual que las demás) que vive siempre en la raíz: los audios que
-   subes se quedan ahí sin clasificar hasta que eliges en qué carpeta
-   real van, y entonces se clasifican y aparecen dentro de ella junto
-   a los documentos (arrastrables igual que ellos).
+   La transcripción de audio a texto es una herramienta aparte,
+   bien separada visualmente debajo del árbol: funciona como una
+   cola — un audio subido se queda ahí hasta que se vincula a un
+   documento (existente o nuevo), momento en el que desaparece de
+   la cola.
 ============================================================ */
 
 const NODE_ROOT = null;
-const AUDIOS_NODE = "__audios";
 
 function statusMeta(status: string) {
   switch (status) {
@@ -190,7 +153,6 @@ export function ArchivoPanel() {
 
   /* ---------- breadcrumb ---------- */
   const breadcrumb = useMemo(() => {
-    if (node === AUDIOS_NODE) return [{ id: NODE_ROOT, label: "Archivo" }, { id: AUDIOS_NODE, label: "Audio a texto" }];
     const chain: { id: string | null; label: string }[] = [{ id: NODE_ROOT, label: "Archivo" }];
     folderPath(node).forEach(f => chain.push({ id: f.id, label: f.name }));
     return chain;
@@ -198,7 +160,6 @@ export function ArchivoPanel() {
 
   /* ---------- listados del nodo actual ---------- */
   const subfolders = useMemo(() => {
-    if (node === AUDIOS_NODE) return [];
     if (node === NODE_ROOT) return apunteFolders.filter(f => !f.parentId);
     return apunteFolders.filter(f => f.parentId === node);
   }, [node, apunteFolders]);
@@ -207,10 +168,9 @@ export function ArchivoPanel() {
   const matchesQuery = (title: string, content?: string) =>
     !q || title.toLowerCase().includes(q) || (content ?? "").toLowerCase().includes(q);
 
-  const folderDocs = useMemo(() => {
-    if (node === AUDIOS_NODE) return [];
-    return apunteDocs.filter(d => (d.folderId ?? null) === node).filter(d => matchesQuery(d.title, d.content));
-  }, [node, apunteDocs, q]);
+  const folderDocs = useMemo(() =>
+    apunteDocs.filter(d => (d.folderId ?? null) === node).filter(d => matchesQuery(d.title, d.content)),
+    [node, apunteDocs, q]);
 
   const docCount = (folderId: string | null) =>
     apunteDocs.filter(d => (d.folderId ?? null) === folderId).length;
@@ -229,19 +189,14 @@ export function ArchivoPanel() {
     });
   }, [apunteDocs, flatFolderOptions]);
 
-  /* ---------- audios: sin clasificar (viven en la carpeta "Audio a texto")
-     frente a ya clasificados en una carpeta real (o en la raíz del Archivo) ---------- */
-  const unclassifiedAudios = useMemo(() => apunteAudios.filter(a => a.folderId === undefined), [apunteAudios]);
-  const folderAudios = useMemo(() => {
-    if (node === AUDIOS_NODE) return [];
-    return apunteAudios.filter(a => a.folderId !== undefined && (a.folderId ?? null) === node);
-  }, [node, apunteAudios]);
+  /* ---------- solo audios sin asignar (la "cola") ---------- */
+  const queuedAudios = useMemo(() => apunteAudios.filter(a => !a.documentId), [apunteAudios]);
 
   /* ---------- acciones ---------- */
   const openFolder = (id: string | null) => { setNode(id); setSearch(""); };
   const refreshAll = () => { refreshDriveFolders(); refreshDocStatuses(); };
 
-  /* ---------- arrastrar y soltar (mover carpetas/documentos/audios) ---------- */
+  /* ---------- arrastrar y soltar (mover carpetas/documentos) ---------- */
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const onDragEnd = (e: DragEndEvent) => {
@@ -263,7 +218,6 @@ export function ArchivoPanel() {
 
     if (activeType === "folder") moveApunteFolder(activeRealId, targetFolderId);
     else if (activeType === "doc") moveApunteDoc(activeRealId, targetFolderId);
-    else if (activeType === "audio") updateApunteAudio(activeRealId, { folderId: targetFolderId });
   };
 
   const createFolder = () => {
@@ -368,10 +322,10 @@ export function ArchivoPanel() {
         </div>
       )}
 
-      {/* Caja grande: Archivo (carpetas + documentos + carpeta virtual "Audio a texto") */}
+      {/* Caja grande: Archivo (carpetas + documentos) */}
       <DndContext sensors={dndSensors} onDragEnd={onDragEnd}>
         <div className="space-y-4 rounded-2xl border-2 border-border bg-card/40 p-4 shadow-sm sm:p-6">
-          {/* Breadcrumb (también sirve para soltar carpetas/documentos/audios y moverlos a un nivel superior) */}
+          {/* Breadcrumb (también sirve para soltar carpetas/documentos y moverlos a un nivel superior) */}
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             {breadcrumb.map((b, i) => (
               <DropTarget key={b.id ?? "root"} id={`crumb:${b.id ?? "root"}`} className="flex items-center gap-1.5 rounded-full">
@@ -388,147 +342,131 @@ export function ArchivoPanel() {
                 </button>
               </DropTarget>
             ))}
-            {googleConnected && node !== AUDIOS_NODE && (
+            {googleConnected && (
               <button onClick={refreshAll} className="ml-1 rounded p-1 text-muted-foreground hover:text-foreground" title="Actualizar desde Drive">
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
 
-          {node === AUDIOS_NODE ? (
-            /* ---------- Vista de la carpeta virtual "Audio a texto" ---------- */
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground">
-                  Los audios se quedan aquí hasta que eliges en qué carpeta clasificarlos. En cuanto los clasificas, pasan a esa carpeta (y se pueden arrastrar igual que un documento).
-                </p>
-                <input ref={fileInputRef} type="file" accept="audio/*" className="hidden" onChange={onPickFile} />
-                <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                  <Upload className="h-4 w-4" /> Subir audio
+          {/* Toolbar */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar en esta carpeta…" className="pl-8" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setNewFolderOpen(true)}>
+                <FolderPlus className="h-4 w-4" /> Carpeta
+              </Button>
+              <Button size="sm" variant="outline" onClick={openNewDoc}>
+                <Plus className="h-4 w-4" /> Documento
+              </Button>
+              {subfolders.length > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => setManageFoldersOpen(true)}>
+                  <Pencil className="h-4 w-4" /> Gestionar carpetas
                 </Button>
-              </div>
-
-              {unclassifiedAudios.length === 0 ? <Empty msg="No hay audios sin clasificar." /> : (
-                <div className="space-y-2">
-                  {unclassifiedAudios.map(a => {
-                    const meta = statusMeta(a.status);
-                    return (
-                      <div key={a.id} className="rounded-xl border bg-card/50 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <Input
-                              defaultValue={a.title}
-                              onBlur={(e) => e.target.value.trim() && e.target.value !== a.title && updateApunteAudio(a.id, { title: e.target.value.trim() })}
-                              className="h-7 max-w-xs border-none bg-transparent px-0 text-sm font-medium shadow-none focus-visible:ring-0"
-                            />
-                            <p className={`flex items-center gap-1 text-[11px] ${meta.cls}`}>
-                              {meta.icon} {meta.label}{a.errorMessage ? ` · ${a.errorMessage}` : ""}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Select onValueChange={(v) => updateApunteAudio(a.id, { folderId: v === "__root" ? null : v })}>
-                              <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="Clasificar en…" /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__root">Archivo (raíz)</SelectItem>
-                                {flatFolderOptions.map(fo => <SelectItem key={fo.id} value={fo.id}>{fo.label}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                            <Button size="sm" variant="ghost" onClick={() => openAudioLink(a.id)} disabled={apunteDocs.length === 0} title="Vincular a un documento existente">
-                              <Link2 className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => openAudioNewDoc(a.id, a.title)} title="Crear documento con esta transcripción">
-                              <Plus className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={() => delApunteAudio(a.id)}>
-                              <Trash2 className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          </div>
-                        </div>
-                        {a.status === "completed" && (a.summary || a.transcript) && (
-                          <details className="mt-2">
-                            <summary className="cursor-pointer text-xs text-primary">Ver resumen y transcripción</summary>
-                            <div className="mt-2 space-y-2 text-xs text-muted-foreground">
-                              {a.summary && <div className="whitespace-pre-wrap rounded-lg bg-background/60 p-2"><span className="font-semibold text-foreground">Resumen:</span>{"\n"}{a.summary}</div>}
-                              {a.transcript && <div className="whitespace-pre-wrap rounded-lg bg-background/40 p-2"><span className="font-semibold text-foreground">Transcripción:</span>{"\n"}{a.transcript}</div>}
-                            </div>
-                          </details>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              )}
+              {folderDocs.length > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => setManageDocsOpen(true)}>
+                  <Pencil className="h-4 w-4" /> Gestionar documentos
+                </Button>
               )}
             </div>
-          ) : (
-            <>
-              {/* Toolbar */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="relative min-w-[200px] flex-1">
-                  <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar en esta carpeta…" className="pl-8" />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setNewFolderOpen(true)}>
-                    <FolderPlus className="h-4 w-4" /> Carpeta
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={openNewDoc}>
-                    <Plus className="h-4 w-4" /> Documento
-                  </Button>
-                  {subfolders.length > 0 && (
-                    <Button size="sm" variant="ghost" onClick={() => setManageFoldersOpen(true)}>
-                      <Pencil className="h-4 w-4" /> Gestionar carpetas
-                    </Button>
-                  )}
-                  {folderDocs.length > 0 && (
-                    <Button size="sm" variant="ghost" onClick={() => setManageDocsOpen(true)}>
-                      <Pencil className="h-4 w-4" /> Gestionar documentos
-                    </Button>
-                  )}
-                </div>
-              </div>
+          </div>
 
-              {/* Subcarpetas (arrastrables y soltables) + carpeta virtual "Audio a texto" fija en la raíz */}
-              {(subfolders.length > 0 || node === NODE_ROOT) && (
-                <div className="flex flex-wrap gap-2">
-                  {node === NODE_ROOT && (
-                    <button
-                      onClick={() => openFolder(AUDIOS_NODE)}
-                      className="flex items-center gap-2 rounded-xl border border-dashed bg-card/40 px-3 py-2 text-sm shadow-sm transition hover:border-primary/40"
-                    >
-                      <Mic className="h-4 w-4 text-primary" /> Audio a texto
-                      <span className="text-[10px] text-muted-foreground">{unclassifiedAudios.length}</span>
-                    </button>
-                  )}
-                  {subfolders.map(f => (
-                    <FolderTile key={f.id} folder={f} count={docCount(f.id)} onOpen={() => openFolder(f.id)} />
-                  ))}
-                </div>
-              )}
-
-              {/* Documentos y audios clasificados de la carpeta actual (arrastrables) */}
-              {folderDocs.length === 0 && folderAudios.length === 0 && subfolders.length === 0 ? (
-                <Empty msg="Esta carpeta está vacía." />
-              ) : (folderDocs.length > 0 || folderAudios.length > 0) ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {folderDocs.map(d => (
-                    <DocTile
-                      key={d.id}
-                      doc={d}
-                      linkedCount={apunteAudios.filter(a => a.documentId === d.id).length}
-                      onOpen={() => openDoc(d)}
-                    />
-                  ))}
-                  {folderAudios.map(a => <AudioTile key={a.id} audio={a} />)}
-                </div>
-              ) : null}
-
-              <p className="text-[11px] text-muted-foreground">
-                Consejo: arrastra una carpeta, un documento o un audio ya clasificado sobre otra carpeta para moverlo dentro, o sobre el nombre de un nivel superior en la ruta de arriba para sacarlo.
-              </p>
-            </>
+          {/* Subcarpetas (arrastrables y soltables) */}
+          {subfolders.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {subfolders.map(f => (
+                <FolderTile key={f.id} folder={f} count={docCount(f.id)} onOpen={() => openFolder(f.id)} />
+              ))}
+            </div>
           )}
+
+          {/* Documentos de la carpeta actual (arrastrables) */}
+          {folderDocs.length === 0 && subfolders.length === 0 ? (
+            <Empty msg="Esta carpeta está vacía." />
+          ) : folderDocs.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {folderDocs.map(d => (
+                <DocTile
+                  key={d.id}
+                  doc={d}
+                  linkedCount={apunteAudios.filter(a => a.documentId === d.id).length}
+                  onOpen={() => openDoc(d)}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <p className="text-[11px] text-muted-foreground">
+            Consejo: arrastra una carpeta o un documento sobre otra carpeta para moverlo dentro, o sobre el nombre de un nivel superior en la ruta de arriba para sacarlo.
+          </p>
         </div>
       </DndContext>
+
+      {/* Herramienta aparte: Audio a texto (cola de audios sin asignar) */}
+      <Section
+        title="Audio a texto"
+        icon={<Mic className="h-4 w-4 text-primary" />}
+        className="border-2"
+        action={
+          <>
+            <input ref={fileInputRef} type="file" accept="audio/*" className="hidden" onChange={onPickFile} />
+            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="h-4 w-4" /> Subir audio
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-3 text-xs text-muted-foreground">
+          Los audios se quedan aquí hasta que los vincules a un documento. En cuanto los asignas, desaparecen de esta lista.
+        </p>
+        {queuedAudios.length === 0 ? <Empty msg="No hay audios pendientes de asignar." /> : (
+          <div className="space-y-2">
+            {queuedAudios.map(a => {
+              const meta = statusMeta(a.status);
+              return (
+                <div key={a.id} className="rounded-xl border bg-card/50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <Input
+                        defaultValue={a.title}
+                        onBlur={(e) => e.target.value.trim() && e.target.value !== a.title && updateApunteAudio(a.id, { title: e.target.value.trim() })}
+                        className="h-7 max-w-xs border-none bg-transparent px-0 text-sm font-medium shadow-none focus-visible:ring-0"
+                      />
+                      <p className={`flex items-center gap-1 text-[11px] ${meta.cls}`}>
+                        {meta.icon} {meta.label}{a.errorMessage ? ` · ${a.errorMessage}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openAudioLink(a.id)} disabled={apunteDocs.length === 0}>
+                        <Link2 className="h-3.5 w-3.5" /> Vincular existente
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => openAudioNewDoc(a.id, a.title)}>
+                        <Plus className="h-3.5 w-3.5" /> Documento nuevo
+                      </Button>
+                      <Button size="icon" variant="ghost" onClick={() => delApunteAudio(a.id)}>
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  </div>
+                  {a.status === "completed" && (a.summary || a.transcript) && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-primary">Ver resumen y transcripción</summary>
+                      <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                        {a.summary && <div className="whitespace-pre-wrap rounded-lg bg-background/60 p-2"><span className="font-semibold text-foreground">Resumen:</span>{"\n"}{a.summary}</div>}
+                        {a.transcript && <div className="whitespace-pre-wrap rounded-lg bg-background/40 p-2"><span className="font-semibold text-foreground">Transcripción:</span>{"\n"}{a.transcript}</div>}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Section>
 
       {/* Dialog: nueva carpeta */}
       <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
@@ -652,7 +590,7 @@ export function ArchivoPanel() {
             <p className="truncate text-xs text-muted-foreground">{pendingFile?.name}</p>
             <Input value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="Título del audio" />
             <p className="text-[11px] text-muted-foreground">
-              Se transcribirá y resumirá automáticamente. Quedará en "Audio a texto" hasta que elijas en qué carpeta clasificarlo.
+              Se transcribirá y resumirá automáticamente. Quedará en "Audio a texto" hasta que lo vincules a un documento.
             </p>
           </div>
           <DialogFooter>
