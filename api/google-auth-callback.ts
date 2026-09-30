@@ -4,7 +4,7 @@
    refresh_token (solo accesible con la service role key) y
    vuelve a mandar al usuario a la app.
 ============================================================ */
-import { getBaseUrl, supabaseAdmin } from "./_lib/google";
+import { getBaseUrl, supabaseAdmin } from "./_lib/google.js";
 
 /** Redirige mostrando un motivo de error corto y no sensible, y lo deja en los logs de Vercel. */
 function fail(res: any, base: string, reason: string, detail?: unknown) {
