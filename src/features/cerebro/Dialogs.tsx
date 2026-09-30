@@ -18,13 +18,14 @@ import { cn } from "@/lib/utils";
 import {
   Category, Priority, Complexity, CATEGORIES, DEFAULT_NOTE_CAT, uid,
   Recurrence, RecurrenceFreq, WEEKDAY_LABELS, WEEKDAY_FULL, describeRecurrence,
+  ProjectCategory, PROJECT_CAT_PALETTE,
 } from "./types";
 import { useCerebro } from "./CerebroContext";
 import { fileToCompressedDataURL } from "@/features/knowledge/imageUtils";
 
 /* ---------- Task Dialog ---------- */
 export function TaskDialog() {
-  const { _taskDialogState: state, _setTaskDialogOpen, addTask, updateTask, tasks } = useCerebro();
+  const { _taskDialogState: state, _setTaskDialogOpen, addTask, updateTask, tasks, projects } = useCerebro();
   const editing = state.editId ? tasks.find(t => t.id === state.editId) : undefined;
   const isEdit = !!editing;
 
@@ -36,6 +37,7 @@ export function TaskDialog() {
   const [complexity, setComplexity] = useState<Complexity>("quick");
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [recurrence, setRecurrence] = useState<Recurrence | undefined>(undefined);
+  const [projectId, setProjectId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (state.open) {
@@ -48,6 +50,7 @@ export function TaskDialog() {
         setComplexity(editing.complexity ?? "quick");
         setDate(editing.date ? new Date(editing.date) : undefined);
         setRecurrence(editing.recurrence);
+        setProjectId(editing.projectId);
       } else {
         setTitle(state.defaultTitle ?? "");
         setDescription("");
@@ -57,6 +60,7 @@ export function TaskDialog() {
         setComplexity("quick");
         setDate(new Date());
         setRecurrence(undefined);
+        setProjectId(undefined);
       }
     }
   }, [state.open, state.defaultTitle, editing]);
@@ -82,6 +86,8 @@ export function TaskDialog() {
         category, priority, complexity,
         date: date?.toISOString(),
         recurrence,
+        projectId,
+        stage: projectId ? (editing.projectId === projectId ? editing.stage ?? "todo" : "todo") : undefined,
       });
     } else {
       addTask({
@@ -94,6 +100,7 @@ export function TaskDialog() {
         linkedNoteId: state.linkedNoteId,
         linkedMilestoneId: state.linkedMilestoneId,
         recurrence,
+        projectId,
       });
     }
     _setTaskDialogOpen(false);
@@ -152,6 +159,17 @@ export function TaskDialog() {
                 <SelectItem value="low">Baja</SelectItem>
                 <SelectItem value="med">Media</SelectItem>
                 <SelectItem value="high">Alta</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Proyecto (opcional)</label>
+            <Select value={projectId ?? "__none"} onValueChange={(v) => setProjectId(v === "__none" ? undefined : v)}>
+              <SelectTrigger><SelectValue placeholder="Sin proyecto" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">Sin proyecto</SelectItem>
+                {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>

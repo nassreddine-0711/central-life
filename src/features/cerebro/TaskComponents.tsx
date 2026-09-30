@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { format, isSameDay, isToday, eachDayOfInterval, startOfDay, addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, addMonths, subMonths, addWeeks, subWeeks, isSameWeek } from "date-fns";
 import { es } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Flag, Trash2, Check, Award, Repeat, Pencil, Plus, Zap, Brain, X as XIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Flag, Trash2, Check, Award, Repeat, Pencil, Plus, Zap, Brain, X as XIcon, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -31,10 +31,11 @@ export function Empty({ msg }: { msg: string }) {
 
 export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }: { task: Task; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; compact?: boolean; fading?: boolean; }) {
   const { milestones } = useKnowledge();
-  const { openTaskDialog } = useCerebro();
+  const { openTaskDialog, projects } = useCerebro();
   const [expanded, setExpanded] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const milestone = task.linkedMilestoneId ? milestones.find(m => m.id === task.linkedMilestoneId) : undefined;
+  const project = task.projectId ? projects.find(p => p.id === task.projectId) : undefined;
   const hasExtras = !!(task.description || task.photo);
   return (
     <div className={cn(
@@ -68,6 +69,12 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
             onClick={() => setExpanded(v => !v)}
             title={task.title}
           >{task.title}</p>
+          {project && (
+            <Badge variant="outline" className="ml-auto h-5 shrink-0 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary">
+              <FolderKanban className="h-2.5 w-2.5" />
+              <span className="max-w-[110px] truncate">{project.title}</span>
+            </Badge>
+          )}
         </div>
 
         {expanded && task.photo && (

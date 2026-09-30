@@ -1,4 +1,4 @@
-import { Link2, FileText, Trash2, Tag, ListPlus, Bookmark, Pencil, Image as ImageIcon, X as XIcon } from "lucide-react";
+import { Link2, FileText, Trash2, Tag, ListPlus, Bookmark, Pencil, Image as ImageIcon, X as XIcon, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -12,7 +12,7 @@ import { useCerebro } from "./CerebroContext";
 import { useState } from "react";
 
 export function NoteCard({ note }: { note: Note }) {
-  const { delNote, createTaskFromNote, updateNote, noteCats } = useCerebro();
+  const { delNote, createTaskFromNote, updateNote, noteCats, projects } = useCerebro();
   const [editOpen, setEditOpen] = useState(false);
   const [lightbox, setLightbox] = useState(false);
 
@@ -23,6 +23,9 @@ export function NoteCard({ note }: { note: Note }) {
   const [tags, setTags] = useState(note.tags.join(", "));
   const [category, setCategory] = useState(note.category);
   const [photo, setPhoto] = useState<string | undefined>(note.photo);
+  const [projectId, setProjectId] = useState<string | undefined>(note.projectId);
+
+  const project = note.projectId ? projects.find(p => p.id === note.projectId) : undefined;
 
   const openEdit = () => {
     setTitle(note.title);
@@ -31,6 +34,7 @@ export function NoteCard({ note }: { note: Note }) {
     setTags(note.tags.join(", "));
     setCategory(note.category);
     setPhoto(note.photo);
+    setProjectId(note.projectId);
     setEditOpen(true);
   };
 
@@ -49,6 +53,7 @@ export function NoteCard({ note }: { note: Note }) {
       tags: tags.split(",").map(t => t.trim()).filter(Boolean),
       category,
       photo: photo || undefined,
+      projectId,
     });
     setEditOpen(false);
   };
@@ -108,6 +113,12 @@ export function NoteCard({ note }: { note: Note }) {
             <Badge variant="outline" className="h-5 border-accent/40 bg-accent/10 text-[10px]">
               <Bookmark className="mr-1 h-2.5 w-2.5" />
               {note.linkedTo.title}
+            </Badge>
+          )}
+          {project && (
+            <Badge variant="outline" className="h-5 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary">
+              <FolderKanban className="h-2.5 w-2.5" />
+              {project.title}
             </Badge>
           )}
           {note.tags.map(t => <Badge key={t} variant="secondary" className="h-5 text-[10px]"><Tag className="mr-1 h-2.5 w-2.5" />{t}</Badge>)}
@@ -176,6 +187,17 @@ export function NoteCard({ note }: { note: Note }) {
               value={tags}
               onChange={e => setTags(e.target.value)}
             />
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Proyecto (opcional)</label>
+              <Select value={projectId ?? "__none"} onValueChange={(v) => setProjectId(v === "__none" ? undefined : v)}>
+                <SelectTrigger><SelectValue placeholder="Sin proyecto" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Sin proyecto</SelectItem>
+                  {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
 
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setEditOpen(false)}>Cancelar</Button>

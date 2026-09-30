@@ -47,21 +47,37 @@ export interface Task {
   stage?: ProjectStage;
 }
 
-/* ---------- Proyectos (Kanban) ---------- */
-export type ProjectStage = "backlog" | "doing" | "blocked" | "done";
+/* ---------- Proyectos (Kanban interno de tareas por proyecto) ---------- */
+export type ProjectStage = "todo" | "doing" | "blocked" | "done";
 
 export const PROJECT_STAGES: { key: ProjectStage; label: string }[] = [
-  { key: "backlog", label: "Por hacer" },
+  { key: "todo", label: "Sin empezar" },
   { key: "doing", label: "En curso" },
   { key: "blocked", label: "Bloqueado" },
-  { key: "done", label: "Hecho" },
+  { key: "done", label: "Terminadas" },
 ];
+
+/* ---------- Proyectos (Kanban superior: siguiente / en curso / finalizado + inbox) ---------- */
+export type ProjectStatus = "inbox" | "next" | "doing" | "done";
+
+export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
+  inbox: "Inbox",
+  next: "Siguiente proyecto",
+  doing: "Proyecto en curso",
+  done: "Proyecto finalizado",
+};
+
+/** Columnas del kanban superior, en orden (el Inbox se pinta aparte, debajo). */
+export const PROJECT_KANBAN_STATUSES: ProjectStatus[] = ["next", "doing", "done"];
 
 export interface Project {
   id: string;
   title: string;
   description?: string;
   color?: string;
+  status: ProjectStatus;
+  categoryId?: string;
+  dueDate?: string;
   /** Id de un Goal (RoadMap) marcado como proyecto, si viene de ahí. */
   linkedGoalId?: string;
   archived?: boolean;
@@ -69,6 +85,30 @@ export interface Project {
 }
 
 export const PROJECTS_KEY = "cerebro.projects.v1";
+
+/** Categorías de proyecto, creables/editables por el usuario. */
+export interface ProjectCategory {
+  id: string;
+  name: string;
+  color?: string;
+  createdAt: string;
+}
+
+export const PROJECT_CATS_KEY = "cerebro.projectCategories.v1";
+
+export const PROJECT_CAT_PALETTE = [
+  "#6366f1", "#22c55e", "#f59e0b", "#ec4899", "#06b6d4", "#a855f7", "#ef4444", "#84cc16",
+];
+
+/** Entrada de "actualización" (estilo commit) del historial de un proyecto. */
+export interface ProjectUpdate {
+  id: string;
+  projectId: string;
+  text: string;
+  createdAt: string;
+}
+
+export const PROJECT_UPDATES_KEY = "cerebro.projectUpdates.v1";
 
 /* ---------- Apuntes (carpetas + documentos + audios transcritos) ---------- */
 export interface ApunteFolder {
@@ -153,6 +193,8 @@ export interface Note {
   category: string;
   createdAt: string;
   linkedTo?: LinkedRef;
+  /** Si está vinculada a un Proyecto. */
+  projectId?: string;
 }
 
 export const TASKS_KEY = "cerebro.tasks.v1";

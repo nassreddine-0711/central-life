@@ -5,9 +5,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { subMonths, parseISO } from "date-fns";
 import {
-  Task, Note, LinkedRef, Category, Priority, Project, ProjectStage,
+  Task, Note, LinkedRef, Category, Priority, Project, ProjectStage, ProjectStatus,
+  ProjectCategory, ProjectUpdate,
   ApunteFolder, ApunteDoc, ApunteAudio,
-  TASKS_KEY, NOTES_KEY, NOTE_CATS_KEY, PROJECTS_KEY, DEFAULT_NOTE_CAT, uid, load,
+  TASKS_KEY, NOTES_KEY, NOTE_CATS_KEY, PROJECTS_KEY, PROJECT_CATS_KEY, PROJECT_UPDATES_KEY,
+  DEFAULT_NOTE_CAT, uid, load,
   nextRecurrence,
   APUNTE_FOLDERS_KEY, APUNTE_DOCS_KEY, APUNTE_AUDIOS_KEY, APUNTES_AUDIO_BUCKET,
 } from "./types";
@@ -18,6 +20,8 @@ interface CerebroCtx {
   notes: Note[];
   noteCats: string[];
   projects: Project[];
+  projectCategories: ProjectCategory[];
+  projectUpdates: ProjectUpdate[];
   fadingIds: Set<string>;
 
   addTask: (partial: Partial<Task> & { title: string }) => Task;
@@ -36,10 +40,18 @@ interface CerebroCtx {
   addProject: (partial: Partial<Project> & { title: string }) => Project;
   updateProject: (id: string, patch: Partial<Project>) => void;
   delProject: (id: string) => void;
+  moveProjectStatus: (projectId: string, status: ProjectStatus) => void;
   projectTasks: (projectId: string) => Task[];
   projectProgress: (projectId: string) => { done: number; total: number; pct: number };
   moveTaskStage: (taskId: string, stage: ProjectStage) => void;
   projectByGoalId: (goalId: string) => Project | undefined;
+  addProjectCategory: (name: string, color?: string) => ProjectCategory;
+  updateProjectCategory: (id: string, patch: Partial<ProjectCategory>) => void;
+  delProjectCategory: (id: string) => void;
+  addProjectUpdate: (projectId: string, text: string) => ProjectUpdate;
+  delProjectUpdate: (id: string) => void;
+  projectUpdatesFor: (projectId: string) => ProjectUpdate[];
+  projectNotes: (projectId: string) => Note[];
 
   // Apuntes (carpetas + documentos + audios transcritos)
   apunteFolders: ApunteFolder[];
@@ -107,7 +119,11 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     load<Note[]>(NOTES_KEY, []).map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))
   );
   const [noteCats, setNoteCats] = useState<string[]>(() => load(NOTE_CATS_KEY, [DEFAULT_NOTE_CAT]));
-  const [projects, setProjects] = useState<Project[]>(() => load(PROJECTS_KEY, []));
+  const [projects, setProjects] = useState<Project[]>(() =>
+    load<Project[]>(PROJECTS_KEY, []).map(p => ({ ...p, status: p.status ?? (p.archived ? "done" : "next") }))
+  );
+  const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>(() => load(PROJECT_CATS_KEY, []));
+  const [projectUpdates, setProjectUpdates] = useState<ProjectUpdate[]>(() => load(PROJECT_UPDATES_KEY, []));
   const [apunteFolders, setApunteFolders] = useState<ApunteFolder[]>(() => load(APUNTE_FOLDERS_KEY, []));
   const [apunteDocs, setApunteDocs] = useState<ApunteDoc[]>(() => load(APUNTE_DOCS_KEY, []));
   const [apunteAudios, setApunteAudios] = useState<ApunteAudio[]>(() => load(APUNTE_AUDIOS_KEY, []));
@@ -132,6 +148,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useEffect(() => { saveLocal(NOTES_KEY, notes, "las notas"); }, [notes, saveLocal]);
   useEffect(() => { saveLocal(NOTE_CATS_KEY, noteCats, "las categorías de notas"); }, [noteCats, saveLocal]);
   useEffect(() => { saveLocal(PROJECTS_KEY, projects, "los proyectos"); }, [projects, saveLocal]);
+  useEffect(() => { saveLocal(PROJECT_CATS_KEY, projectCategories, "las categorías de proyecto"); }, [projectCategories, saveLocal]);
+  useEffect(() => { saveLocal(PROJECT_UPDATES_KEY, projectUpdates, "las actualizaciones de proyecto"); }, [projectUpdates, saveLocal]);
   useEffect(() => { saveLocal(APUNTE_FOLDERS_KEY, apunteFolders, "las carpetas de apuntes"); }, [apunteFolders, saveLocal]);
   useEffect(() => { saveLocal(APUNTE_DOCS_KEY, apunteDocs, "los apuntes"); }, [apunteDocs, saveLocal]);
   useEffect(() => { saveLocal(APUNTE_AUDIOS_KEY, apunteAudios, "los audios de apuntes"); }, [apunteAudios, saveLocal]);
@@ -140,6 +158,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const setNotesCb = useCallback((v: Note[]) => setNotes(v.map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))), []);
   const setNoteCatsCb = useCallback((v: string[]) => setNoteCats(v), []);
   const setProjectsCb = useCallback((v: Project[]) => setProjects(v), []);
+  const setProjectCategoriesCb = useCallback((v: ProjectCategory[]) => setProjectCategories(v), []);
+  const setProjectUpdatesCb = useCallback((v: ProjectUpdate[]) => setProjectUpdates(v), []);
   const setApunteFoldersCb = useCallback((v: ApunteFolder[]) => setApunteFolders(v), []);
   const setApunteDocsCb = useCallback((v: ApunteDoc[]) => setApunteDocs(v), []);
   const setApunteAudiosCb = useCallback((v: ApunteAudio[]) => setApunteAudios(v), []);
@@ -147,6 +167,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useSupabaseSync("cerebro_notes", notes, setNotesCb);
   useSupabaseSync("cerebro_notecats", noteCats, setNoteCatsCb);
   useSupabaseSync("cerebro_projects", projects, setProjectsCb);
+  useSupabaseSync("cerebro_project_categories", projectCategories, setProjectCategoriesCb);
+  useSupabaseSync("cerebro_project_updates", projectUpdates, setProjectUpdatesCb);
   useSupabaseSync("cerebro_apunte_folders", apunteFolders, setApunteFoldersCb);
   useSupabaseSync("cerebro_apunte_docs", apunteDocs, setApunteDocsCb);
   useSupabaseSync("cerebro_apunte_audios", apunteAudios, setApunteAudiosCb);
@@ -167,7 +189,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       linkedMilestoneId: partial.linkedMilestoneId,
       recurrence: partial.recurrence,
       projectId: partial.projectId,
-      stage: partial.projectId ? (partial.stage ?? "backlog") : undefined,
+      stage: partial.projectId ? (partial.stage ?? "todo") : undefined,
     };
     setTasks(prev => [t, ...prev]);
     return t;
@@ -248,6 +270,9 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       title: partial.title,
       description: partial.description,
       color: partial.color,
+      status: partial.status ?? "inbox",
+      categoryId: partial.categoryId,
+      dueDate: partial.dueDate,
       linkedGoalId: partial.linkedGoalId,
       archived: false,
       createdAt: new Date().toISOString(),
@@ -261,9 +286,15 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const delProject = useCallback((id: string) => {
-    if (!confirm("¿Eliminar este proyecto? Las tareas que tenga se quedarán sin proyecto.")) return;
+    if (!confirm("¿Eliminar este proyecto? Las tareas y archivos vinculados se quedarán sin proyecto.")) return;
     setProjects(prev => prev.filter(p => p.id !== id));
     setTasks(prev => prev.map(t => t.projectId === id ? { ...t, projectId: undefined, stage: undefined } : t));
+    setNotes(prev => prev.map(n => n.projectId === id ? { ...n, projectId: undefined } : n));
+    setProjectUpdates(prev => prev.filter(u => u.projectId !== id));
+  }, []);
+
+  const moveProjectStatus = useCallback((projectId: string, status: ProjectStatus) => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status, archived: status === "done" } : p));
   }, []);
 
   const projectTasks = useCallback((projectId: string) => tasks.filter(t => t.projectId === projectId), [tasks]);
@@ -280,6 +311,37 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const projectByGoalId = useCallback((goalId: string) => projects.find(p => p.linkedGoalId === goalId), [projects]);
+
+  const addProjectCategory: CerebroCtx["addProjectCategory"] = useCallback((name, color) => {
+    const c: ProjectCategory = { id: uid(), name: name.trim() || "Sin nombre", color, createdAt: new Date().toISOString() };
+    setProjectCategories(prev => [...prev, c]);
+    return c;
+  }, []);
+
+  const updateProjectCategory = useCallback((id: string, patch: Partial<ProjectCategory>) => {
+    setProjectCategories(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c));
+  }, []);
+
+  const delProjectCategory = useCallback((id: string) => {
+    setProjectCategories(prev => prev.filter(c => c.id !== id));
+    setProjects(prev => prev.map(p => p.categoryId === id ? { ...p, categoryId: undefined } : p));
+  }, []);
+
+  const addProjectUpdate: CerebroCtx["addProjectUpdate"] = useCallback((projectId, text) => {
+    const u: ProjectUpdate = { id: uid(), projectId, text: text.trim(), createdAt: new Date().toISOString() };
+    setProjectUpdates(prev => [u, ...prev]);
+    return u;
+  }, []);
+
+  const delProjectUpdate = useCallback((id: string) => {
+    setProjectUpdates(prev => prev.filter(u => u.id !== id));
+  }, []);
+
+  const projectUpdatesFor = useCallback((projectId: string) =>
+    projectUpdates.filter(u => u.projectId === projectId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [projectUpdates]);
+
+  const projectNotes = useCallback((projectId: string) => notes.filter(n => n.projectId === projectId), [notes]);
 
   /* ---------- Apuntes (carpetas + documentos + audios transcritos) ---------- */
   const addApunteFolder: CerebroCtx["addApunteFolder"] = useCallback((name, color) => {
@@ -534,10 +596,12 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, [tasks]);
 
   const value = useMemo<CerebroCtx>(() => ({
-    tasks, notes, noteCats, projects, fadingIds,
+    tasks, notes, noteCats, projects, projectCategories, projectUpdates, fadingIds,
     addTask, toggleTask, delTask, updateTask,
     addNote, updateNote, delNote, addNoteCategory, deleteNoteCategory,
-    addProject, updateProject, delProject, projectTasks, projectProgress, moveTaskStage, projectByGoalId,
+    addProject, updateProject, delProject, moveProjectStatus, projectTasks, projectProgress, moveTaskStage, projectByGoalId,
+    addProjectCategory, updateProjectCategory, delProjectCategory,
+    addProjectUpdate, delProjectUpdate, projectUpdatesFor, projectNotes,
     apunteFolders, apunteDocs, apunteAudios,
     addApunteFolder, renameApunteFolder, delApunteFolder,
     addApunteDoc, updateApunteDoc, delApunteDoc,
@@ -553,10 +617,12 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     _quickOpen: quickOpen,
     _setQuickOpen: setQuickOpen,
   }), [
-    tasks, notes, noteCats, projects, fadingIds,
+    tasks, notes, noteCats, projects, projectCategories, projectUpdates, fadingIds,
     addTask, toggleTask, delTask, updateTask,
     addNote, updateNote, delNote, addNoteCategory, deleteNoteCategory,
-    addProject, updateProject, delProject, projectTasks, projectProgress, moveTaskStage, projectByGoalId,
+    addProject, updateProject, delProject, moveProjectStatus, projectTasks, projectProgress, moveTaskStage, projectByGoalId,
+    addProjectCategory, updateProjectCategory, delProjectCategory,
+    addProjectUpdate, delProjectUpdate, projectUpdatesFor, projectNotes,
     apunteFolders, apunteDocs, apunteAudios,
     addApunteFolder, renameApunteFolder, delApunteFolder,
     addApunteDoc, updateApunteDoc, delApunteDoc,
