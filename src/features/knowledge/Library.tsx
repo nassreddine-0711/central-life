@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, Sparkles, Trash2, Star, BookMarked, Check, Pencil, NotebookPen, Upload, ImageOff, Save, X } from "lucide-react";
+import { BookOpen, Plus, Trash2, Star, BookMarked, Check, Pencil, NotebookPen, Upload, ImageOff, Save, X } from "lucide-react";
 import { useKnowledge, BookStatus, Book, fetchCover } from "./KnowledgeContext";
 import { BookEditor } from "./BookEditor";
 import { useCerebro } from "@/features/cerebro/CerebroContext";
@@ -199,12 +199,11 @@ export function Library() {
           })}
         </div>
         <Button
-          variant="outline"
           size="sm"
           onClick={() => setShowForm((v) => !v)}
           className="gap-1.5 text-xs"
         >
-          <Sparkles className="h-3.5 w-3.5" /> Nueva semilla
+          <Plus className="h-3.5 w-3.5" /> Añadir
         </Button>
       </div>
 
@@ -296,7 +295,7 @@ export function Library() {
       </AnimatePresence>
 
       {/* Book grid */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         <AnimatePresence mode="popLayout">
           {filtered.map((b) => (
             <motion.div
