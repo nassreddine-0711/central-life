@@ -500,7 +500,7 @@ export function ArchivoPanel() {
                   size="icon"
                   variant="ghost"
                   onClick={() => {
-                    if (confirm(`¿Eliminar la carpeta "${f.name}"? Su contenido pasará al nivel superior.`)) {
+                    if (confirm(`¿Eliminar la carpeta "${f.name}"? Se borrará también su contenido (subcarpetas y documentos) y, si está sincronizada, se borrará igualmente en Google Drive.`)) {
                       delApunteFolder(f.id);
                     }
                   }}

@@ -59,7 +59,7 @@ interface CerebroCtx {
   apunteAudios: ApunteAudio[];
   addApunteFolder: (name: string, parentId?: string | null, color?: string) => ApunteFolder;
   renameApunteFolder: (id: string, name: string) => void;
-  delApunteFolder: (id: string) => void;
+  delApunteFolder: (id: string) => Promise<void>;
   folderPath: (folderId?: string | null) => ApunteFolder[];
   moveApunteFolder: (id: string, newParentId: string | null) => void;
   moveApunteDoc: (id: string, newFolderId: string | null) => void;
@@ -411,15 +411,54 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     setApunteFolders(prev => prev.map(f => f.id === id ? { ...f, name: name.trim() || f.name } : f));
   }, []);
 
-  const delApunteFolder = useCallback((id: string) => {
-    setApunteFolders(prev => {
-      const target = prev.find(f => f.id === id);
-      const parentId = target?.parentId ?? null;
-      return prev.filter(f => f.id !== id).map(f => f.parentId === id ? { ...f, parentId } : f);
-    });
-    setApunteDocs(prev => prev.map(d => d.folderId === id ? { ...d, folderId: null } : d));
-    setNotes(prev => prev.map(n => n.folderId === id ? { ...n, folderId: null } : n));
-  }, []);
+  /** Borra una carpeta Y todo lo que tenga dentro (subcarpetas, documentos y notas),
+   *  tanto localmente como en Drive — al borrar una carpeta en Drive se borra también
+   *  (a la papelera) todo lo que contiene, así que replicamos ese mismo comportamiento
+   *  aquí para que ambos lados queden siempre iguales. Si falla el borrado en Drive,
+   *  no se toca nada localmente, para no desincronizar. */
+  const delApunteFolder: CerebroCtx["delApunteFolder"] = useCallback(async (id) => {
+    const target = apunteFolders.find(f => f.id === id);
+    if (!target) return;
+
+    if (target.driveFolderId && session?.access_token) {
+      try {
+        const res = await fetch("/api/google-drive-delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ fileId: target.driveFolderId }),
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          toast.error("No se pudo borrar la carpeta en Drive", { description: json?.error });
+          return;
+        }
+      } catch (e: any) {
+        toast.error("No se pudo borrar la carpeta en Drive", { description: e?.message });
+        return;
+      }
+    }
+
+    // Recoge esta carpeta y todas sus subcarpetas (recursivo).
+    const idsToRemove = new Set<string>([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      apunteFolders.forEach(f => {
+        if (f.parentId && idsToRemove.has(f.parentId) && !idsToRemove.has(f.id)) {
+          idsToRemove.add(f.id);
+          grew = true;
+        }
+      });
+    }
+
+    setApunteFolders(prev => prev.filter(f => !idsToRemove.has(f.id)));
+    const removedDocIds = new Set(apunteDocs.filter(d => d.folderId && idsToRemove.has(d.folderId)).map(d => d.id));
+    setApunteDocs(prev => prev.filter(d => !(d.folderId && idsToRemove.has(d.folderId))));
+    setNotes(prev => prev.filter(n => !(n.folderId && idsToRemove.has(n.folderId))));
+    if (removedDocIds.size > 0) {
+      setApunteAudios(prev => prev.map(a => a.documentId && removedDocIds.has(a.documentId) ? { ...a, documentId: null } : a));
+    }
+  }, [apunteFolders, apunteDocs, session]);
 
   const folderPath = useCallback((folderId?: string | null) => {
     const chain: ApunteFolder[] = [];
@@ -817,12 +856,29 @@ ${audio.summary || audio.transcript || ""}
     }
   }, [session]);
 
-  // Reconciliación: si aparecen carpetas nuevas en Drive (creadas fuera de la web),
-  // se reflejan aquí como carpetas locales la próxima vez que se refresca el árbol.
+  // Reconciliación bidireccional con Drive, cada vez que se refresca el árbol:
+  //  1) Carpetas borradas directamente en Drive (fuera de la web) se borran también
+  //     aquí (junto con sus subcarpetas locales y lo que contengan), para que una
+  //     carpeta que ya no existe en Drive tampoco siga apareciendo en la web.
+  //  2) Carpetas nuevas en Drive (creadas fuera de la web) se reflejan aquí como
+  //     carpetas locales.
   useEffect(() => {
     if (!googleConnected || driveFolders.length === 0) return;
+    const driveIds = new Set(driveFolders.map(df => df.id));
+    let removedIds: Set<string> | null = null;
+
     setApunteFolders(prev => {
-      const byDriveId = new Map(prev.filter(f => f.driveFolderId).map(f => [f.driveFolderId as string, f]));
+      const removed = new Set(prev.filter(f => f.driveFolderId && !driveIds.has(f.driveFolderId)).map(f => f.id));
+      let grew = true;
+      while (grew) {
+        grew = false;
+        prev.forEach(f => {
+          if (f.parentId && removed.has(f.parentId) && !removed.has(f.id)) { removed.add(f.id); grew = true; }
+        });
+      }
+      const remaining = prev.filter(f => !removed.has(f.id));
+
+      const byDriveId = new Map(remaining.filter(f => f.driveFolderId).map(f => [f.driveFolderId as string, f]));
       const additions: ApunteFolder[] = [];
       const resolveLocalParent = (driveParentId: string | null): string | null | undefined => {
         if (driveParentId === driveRootId) return null;
@@ -839,9 +895,24 @@ ${audio.summary || audio.transcript || ""}
           additions.push({ id: uid(), name: df.name, parentId: localParent, driveFolderId: df.id, createdAt: new Date().toISOString() });
         });
       }
-      if (additions.length === 0) return prev;
-      return [...prev, ...additions];
+
+      if (removed.size === 0 && additions.length === 0) return prev;
+      if (removed.size > 0) removedIds = removed;
+      return [...remaining, ...additions];
     });
+
+    if (removedIds) {
+      const removed = removedIds;
+      const removedDocIds = new Set<string>();
+      setApunteDocs(prev => {
+        prev.forEach(d => { if (d.folderId && removed.has(d.folderId)) removedDocIds.add(d.id); });
+        return prev.filter(d => !(d.folderId && removed.has(d.folderId)));
+      });
+      setNotes(prev => prev.filter(n => !(n.folderId && removed.has(n.folderId))));
+      if (removedDocIds.size > 0) {
+        setApunteAudios(prev => prev.map(a => a.documentId && removedDocIds.has(a.documentId) ? { ...a, documentId: null } : a));
+      }
+    }
   }, [driveFolders, driveRootId, googleConnected]);
 
   // Sincronización inicial (local → Drive): carpetas creadas antes de que la conexión
