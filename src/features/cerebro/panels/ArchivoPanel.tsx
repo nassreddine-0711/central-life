@@ -167,12 +167,16 @@ export function ArchivoPanel() {
   const matchesQuery = (title: string, content?: string) =>
     !q || title.toLowerCase().includes(q) || (content ?? "").toLowerCase().includes(q);
 
+  // Una nota cuya carpeta ya no existe nunca se pierde: se muestra en la raíz del Archivo.
+  const folderIds = useMemo(() => new Set(apunteFolders.map(f => f.id)), [apunteFolders]);
+  const docNode = (d: ApunteDoc) => (d.folderId && folderIds.has(d.folderId) ? d.folderId : null);
+
   const folderDocs = useMemo(() =>
-    apunteDocs.filter(d => (d.folderId ?? null) === node).filter(d => matchesQuery(d.title, d.content)),
-    [node, apunteDocs, q]);
+    apunteDocs.filter(d => docNode(d) === node).filter(d => matchesQuery(d.title, d.content)),
+    [node, apunteDocs, folderIds, q]);
 
   const docCount = (folderId: string | null) =>
-    apunteDocs.filter(d => (d.folderId ?? null) === folderId).length;
+    apunteDocs.filter(d => docNode(d) === folderId).length;
 
   const currentFolder = node ? apunteFolders.find(f => f.id === node) : undefined;
   const isFixedFolder = node === PROJECTS_ROOT_FOLDER_ID || !!currentFolder?.projectId;

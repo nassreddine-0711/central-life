@@ -208,22 +208,6 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useEffect(() => { saveLocal(DREAMS_KEY, dreams, "los sueños"); }, [dreams, saveLocal]);
   useEffect(() => { saveLocal(DREAMS_CONFIG_KEY, dreamsConfig, "la configuración de sueños"); }, [dreamsConfig, saveLocal]);
 
-  // Asegura que la carpeta fija "Proyectos" siempre existe y que cada proyecto
-  // tiene su subcarpeta dentro de ella (por si algún proyecto antiguo no la tenía).
-  useEffect(() => {
-    setApunteFolders(prev => {
-      let next = prev;
-      if (!next.some(f => f.id === PROJECTS_ROOT_FOLDER_ID)) {
-        next = [{ id: PROJECTS_ROOT_FOLDER_ID, name: "Proyectos", parentId: null, createdAt: new Date().toISOString() }, ...next];
-      }
-      const missing = projects.filter(p => !next.some(f => f.projectId === p.id));
-      if (missing.length > 0) {
-        next = [...next, ...missing.map(p => ({ id: uid(), name: p.title, parentId: PROJECTS_ROOT_FOLDER_ID, projectId: p.id, createdAt: p.createdAt }))];
-      }
-      return next === prev ? prev : next;
-    });
-  }, [projects]);
-
   const setTasksCb = useCallback((v: Task[]) => setTasks(filterOldCompletedTasks(v).map(t => ({ ...t, dayPart: t.dayPart ?? "morning" }))), []);
   const setNotesCb = useCallback((v: Note[]) => setNotes(v.map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))), []);
   const setNoteCatsCb = useCallback((v: string[]) => setNoteCats(v), []);
@@ -242,11 +226,11 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useSupabaseSync("cerebro_tasks", tasks, setTasksCb);
   useSupabaseSync("cerebro_notes", notes, setNotesCb);
   useSupabaseSync("cerebro_notecats", noteCats, setNoteCatsCb);
-  useSupabaseSync("cerebro_projects", projects, setProjectsCb);
+  const projectsSync = useSupabaseSync("cerebro_projects", projects, setProjectsCb);
   useSupabaseSync("cerebro_project_categories", projectCategories, setProjectCategoriesCb);
   useSupabaseSync("cerebro_project_updates", projectUpdates, setProjectUpdatesCb);
-  useSupabaseSync("cerebro_apunte_folders", apunteFolders, setApunteFoldersCb);
-  useSupabaseSync("cerebro_apunte_docs", apunteDocs, setApunteDocsCb);
+  const foldersSync = useSupabaseSync("cerebro_apunte_folders", apunteFolders, setApunteFoldersCb);
+  const docsSync = useSupabaseSync("cerebro_apunte_docs", apunteDocs, setApunteDocsCb);
   useSupabaseSync("cerebro_apunte_audios", apunteAudios, setApunteAudiosCb);
   useSupabaseSync("cerebro_objetivos", objetivos, setObjetivosCb);
   useSupabaseSync("cerebro_retro_entries", retroEntries, setRetroEntriesCb);
@@ -254,6 +238,43 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useSupabaseSync("cerebro_project_time_entries", projectTimeEntries, setProjectTimeEntriesCb);
   useSupabaseSync("cerebro_dreams", dreams, setDreamsCb);
   useSupabaseSync("cerebro_dreams_config", dreamsConfig, setDreamsConfigCb);
+
+  // Asegura que la carpeta fija "Proyectos" siempre existe y que cada proyecto
+  // tiene su subcarpeta dentro de ella (por si algún proyecto antiguo no la tenía).
+  // IMPORTANTE: solo se ejecuta cuando proyectos y carpetas ya se han cargado del
+  // servidor; si no, creaba carpetas "nuevas" sobre un estado vacío y eso pisaba en
+  // Supabase las carpetas reales (y las notas guardadas dentro se quedaban huérfanas).
+  const foldersReady = foldersSync.ready && projectsSync.ready && docsSync.ready;
+  useEffect(() => {
+    if (!foldersReady) return;
+    // Si por una unión de versiones quedó más de una carpeta para el mismo proyecto,
+    // se deja una y todo lo que colgaba de las otras se reubica en ella (no se pierde nada).
+    const keepByProject = new Map<string, string>();
+    const remap = new Map<string, string>();
+    apunteFolders.forEach(f => {
+      if (!f.projectId) return;
+      const keep = keepByProject.get(f.projectId);
+      if (keep) remap.set(f.id, keep); else keepByProject.set(f.projectId, f.id);
+    });
+    if (remap.size > 0) {
+      setApunteFolders(prev => prev
+        .filter(f => !remap.has(f.id))
+        .map(f => (f.parentId && remap.has(f.parentId) ? { ...f, parentId: remap.get(f.parentId)! } : f)));
+      setApunteDocs(prev => prev.map(d => (d.folderId && remap.has(d.folderId) ? { ...d, folderId: remap.get(d.folderId)! } : d)));
+    }
+    setApunteFolders(prev => {
+      let next = prev;
+      if (!next.some(f => f.id === PROJECTS_ROOT_FOLDER_ID)) {
+        next = [{ id: PROJECTS_ROOT_FOLDER_ID, name: "Proyectos", parentId: null, createdAt: new Date().toISOString() }, ...next];
+      }
+      const missing = projects.filter(p => !next.some(f => f.projectId === p.id));
+      if (missing.length > 0) {
+        next = [...next, ...missing.map(p => ({ id: uid(), name: p.title, parentId: PROJECTS_ROOT_FOLDER_ID, projectId: p.id, createdAt: p.createdAt }))];
+      }
+      return next === prev ? prev : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, foldersReady]);
 
   const addTask: CerebroCtx["addTask"] = useCallback((partial) => {
     const t: Task = {
