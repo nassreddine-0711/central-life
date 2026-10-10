@@ -6,20 +6,21 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   Folder, FolderPlus, FileText, Search, ChevronRight,
-  Mic, Upload, Loader2, CheckCircle2, AlertCircle, Trash2, Pencil, ExternalLink, RefreshCw,
-  Home, Plus, Link2,
+  Mic, Upload, Loader2, CheckCircle2, AlertCircle, Trash2, Pencil, Home, Plus, Link2,
+  Tag, Image as ImageIcon, FolderKanban,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useCerebro } from "../CerebroContext";
 import { Section, Empty } from "../TaskComponents";
-import { ApunteDoc, ApunteFolder } from "../types";
+import { ApunteAudio, ApunteDoc, ApunteFolder, PROJECTS_ROOT_FOLDER_ID } from "../types";
+import { NoteEditorDialog } from "../ApunteNoteDialog";
 
-/** Un punto de destino (carpeta o breadcrumb) para arrastrar carpetas/documentos encima. */
+/** Un punto de destino (carpeta o breadcrumb) para arrastrar carpetas/notas encima. */
 function DropTarget({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
@@ -29,17 +30,18 @@ function DropTarget({ id, className, children }: { id: string; className?: strin
   );
 }
 
-/** Tarjeta de carpeta: se puede arrastrar (para moverla) y también recibe carpetas/documentos soltados encima. */
+/** Tarjeta de carpeta: arrastrable (salvo la de un proyecto) y receptora de lo que se suelte encima. */
 function FolderTile({ folder, count, onOpen }: { folder: ApunteFolder; count: number; onOpen: () => void }) {
-  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({ id: `folder:${folder.id}` });
+  const draggable = !folder.projectId && folder.id !== PROJECTS_ROOT_FOLDER_ID;
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({ id: `folder:${folder.id}`, disabled: !draggable });
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `folder:${folder.id}` });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
   return (
     <button
       ref={(node) => { setDragRef(node); setDropRef(node); }}
       style={style}
-      {...listeners}
-      {...attributes}
+      {...(draggable ? listeners : {})}
+      {...(draggable ? attributes : {})}
       onClick={onOpen}
       className={cn(
         "flex items-center gap-2 rounded-xl border bg-card/60 px-3 py-2 text-sm shadow-sm transition hover:border-primary/40",
@@ -47,14 +49,14 @@ function FolderTile({ folder, count, onOpen }: { folder: ApunteFolder; count: nu
         isOver && "border-primary/70 bg-primary/10 ring-2 ring-primary/40",
       )}
     >
-      <Folder className="h-4 w-4 text-primary" /> {folder.name}
-      {folder.driveFolderId && <span title="Sincronizada con Drive" className="text-emerald-500">•</span>}
+      {folder.projectId ? <FolderKanban className="h-4 w-4 text-primary" /> : <Folder className="h-4 w-4 text-primary" />}
+      {folder.name}
       <span className="text-[10px] text-muted-foreground">{count}</span>
     </button>
   );
 }
 
-/** Tarjeta de documento: solo se puede arrastrar (no recibe nada encima). */
+/** Tarjeta de nota: arrastrable (no recibe nada encima). */
 function DocTile({ doc, linkedCount, onOpen }: { doc: ApunteDoc; linkedCount: number; onOpen: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `doc:${doc.id}` });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
@@ -73,33 +75,27 @@ function DocTile({ doc, linkedCount, onOpen }: { doc: ApunteDoc; linkedCount: nu
       <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
         <FileText className="h-4 w-4 shrink-0 text-primary" />
         {doc.title}
-        {doc.googleDocUrl && <ExternalLink className="h-3 w-3 shrink-0 text-emerald-500" />}
       </p>
-      {doc.googleDocUrl ? (
-        <p className="mt-1 text-xs text-emerald-500">Google Docs</p>
-      ) : (
-        <p className="mt-1 text-xs text-amber-500">Creando en Drive…</p>
-      )}
-      {linkedCount > 0 && (
-        <div className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
-          <Mic className="h-3 w-3" /> {linkedCount} audio{linkedCount > 1 ? "s" : ""}
-        </div>
-      )}
+      {doc.content && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{doc.content}</p>}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {doc.tags.slice(0, 3).map(t => (
+          <Badge key={t} variant="outline" className="h-4.5 gap-0.5 text-[10px]"><Tag className="h-2.5 w-2.5" />{t}</Badge>
+        ))}
+        {doc.links.length > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><Link2 className="h-3 w-3" />{doc.links.length}</span>}
+        {doc.photos.length > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><ImageIcon className="h-3 w-3" />{doc.photos.length}</span>}
+        {linkedCount > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><Mic className="h-3 w-3" />{linkedCount}</span>}
+      </div>
     </button>
   );
 }
 
 /* ============================================================
-   Archivo: un único árbol de carpetas (libre, tal como el usuario
-   lo organice). Dentro de cada carpeta solo hay "documentos" (ya
-   no se separan notas/referencias/apuntes: todo es lo mismo) y
-   cada documento vive directamente como Google Doc — al abrirlo
-   se redirige a Drive para editarlo allí.
-   La transcripción de audio a texto es una herramienta aparte,
-   bien separada visualmente debajo del árbol: funciona como una
-   cola — un audio subido se queda ahí hasta que se vincula a un
-   documento (existente o nuevo), momento en el que desaparece de
-   la cola.
+   Archivo: árbol de carpetas 100% local (sin Drive). Hay una
+   carpeta fija "Proyectos" con una subcarpeta automática por
+   cada proyecto. Dentro de cualquier carpeta solo hay "notas":
+   texto + enlaces + fotos + etiquetas. La transcripción de audio
+   a texto es una herramienta aparte: una cola de audios hasta que
+   se vinculan a una nota (existente o nueva).
 ============================================================ */
 
 const NODE_ROOT = null;
@@ -115,14 +111,13 @@ function statusMeta(status: string) {
   }
 }
 
+/** Editor de nota: crea o edita una ApunteDoc (texto + enlaces + fotos + etiquetas). */
 export function ArchivoPanel() {
   const {
     apunteFolders, apunteDocs, apunteAudios,
     addApunteFolder, renameApunteFolder, delApunteFolder, folderPath,
-    moveApunteFolder, moveApunteDoc,
-    addApunteDoc, updateApunteDoc, delApunteDoc,
-    updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
-    googleConnected, connectGoogleDrive, refreshDriveFolders, refreshDocStatuses,
+    moveApunteFolder, moveApunteDoc, delApunteDoc, updateApunteDoc,
+    updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio, addApunteDoc,
   } = useCerebro();
 
   const [node, setNode] = useState<string | null>(NODE_ROOT);
@@ -133,10 +128,8 @@ export function ArchivoPanel() {
   const [manageFoldersOpen, setManageFoldersOpen] = useState(false);
   const [manageDocsOpen, setManageDocsOpen] = useState(false);
 
-  const [newDocOpen, setNewDocOpen] = useState(false);
-  const [newDocTitle, setNewDocTitle] = useState("");
-  const [newDocContent, setNewDocContent] = useState("");
-  const [creatingDoc, setCreatingDoc] = useState(false);
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -146,7 +139,6 @@ export function ArchivoPanel() {
   const [audioDocFor, setAudioDocFor] = useState<string | null>(null);
   const [audioDocTitle, setAudioDocTitle] = useState("");
   const [audioDocFolder, setAudioDocFolder] = useState<string>("__root");
-  const [creatingAudioDoc, setCreatingAudioDoc] = useState(false);
 
   const [audioLinkFor, setAudioLinkFor] = useState<string | null>(null);
   const [audioLinkDoc, setAudioLinkDoc] = useState<string>("");
@@ -175,7 +167,10 @@ export function ArchivoPanel() {
   const docCount = (folderId: string | null) =>
     apunteDocs.filter(d => (d.folderId ?? null) === folderId).length;
 
-  /* ---------- carpetas y documentos en listas planas (para los selectores) ---------- */
+  const currentFolder = node ? apunteFolders.find(f => f.id === node) : undefined;
+  const isFixedFolder = node === PROJECTS_ROOT_FOLDER_ID || !!currentFolder?.projectId;
+
+  /* ---------- listas planas (para los selectores) ---------- */
   const flatFolderOptions = useMemo(
     () => apunteFolders.map(f => ({ id: f.id, label: folderPath(f.id).map(x => x.name).join(" / ") })),
     [apunteFolders, folderPath]
@@ -194,9 +189,8 @@ export function ArchivoPanel() {
 
   /* ---------- acciones ---------- */
   const openFolder = (id: string | null) => { setNode(id); setSearch(""); };
-  const refreshAll = () => { refreshDriveFolders(); refreshDocStatuses(); };
 
-  /* ---------- arrastrar y soltar (mover carpetas/documentos) ---------- */
+  /* ---------- arrastrar y soltar (mover carpetas/notas) ---------- */
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const onDragEnd = (e: DragEndEvent) => {
@@ -227,31 +221,14 @@ export function ArchivoPanel() {
     setNewFolderOpen(false);
   };
 
-  const openNewDoc = () => {
-    if (!googleConnected) {
-      connectGoogleDrive();
-      return;
-    }
-    setNewDocTitle("");
-    setNewDocContent("");
-    setNewDocOpen(true);
+  const openNewNote = () => {
+    setEditingNoteId(null);
+    setNoteDialogOpen(true);
   };
 
-  const confirmNewDoc = async () => {
-    if (!newDocTitle.trim()) return;
-    setCreatingDoc(true);
-    const d = await addApunteDoc({ title: newDocTitle.trim(), content: newDocContent, folderId: node });
-    setCreatingDoc(false);
-    if (d?.googleDocUrl) {
-      window.open(d.googleDocUrl, "_blank", "noreferrer");
-      setNewDocOpen(false);
-    }
-  };
-
-  const openDoc = (d: ApunteDoc) => {
-    if (d.googleDocUrl) {
-      window.open(d.googleDocUrl, "_blank", "noreferrer");
-    }
+  const openEditNote = (d: ApunteDoc) => {
+    setEditingNoteId(d.id);
+    setNoteDialogOpen(true);
   };
 
   const onPickFile = (e: any) => {
@@ -271,33 +248,24 @@ export function ArchivoPanel() {
   };
 
   const openAudioNewDoc = (audioId: string, defaultTitle: string) => {
-    if (!googleConnected) {
-      connectGoogleDrive();
-      return;
-    }
     setAudioDocFor(audioId);
     setAudioDocTitle(defaultTitle);
     setAudioDocFolder("__root");
-    setCreatingAudioDoc(false);
   };
 
-  const confirmAudioNewDoc = async () => {
+  const confirmAudioNewDoc = () => {
     if (!audioDocFor || !audioDocTitle.trim()) return;
     const audio = apunteAudios.find(a => a.id === audioDocFor);
     const initialContent = audio?.status === "completed"
       ? [audio.summary, audio.transcript].filter(Boolean).join("\n\n")
       : undefined;
-    setCreatingAudioDoc(true);
-    const d = await addApunteDoc({
+    const d = addApunteDoc({
       title: audioDocTitle.trim(),
       content: initialContent,
       folderId: audioDocFolder === "__root" ? null : audioDocFolder,
     });
-    setCreatingAudioDoc(false);
-    if (d) {
-      linkApunteAudio(audioDocFor, d.id);
-      setAudioDocFor(null);
-    }
+    linkApunteAudio(audioDocFor, d.id);
+    setAudioDocFor(null);
   };
 
   const openAudioLink = (audioId: string) => {
@@ -314,18 +282,10 @@ export function ArchivoPanel() {
   /* ---------- render ---------- */
   return (
     <div className="space-y-10">
-      {/* Estado de Google Drive */}
-      {!googleConnected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3 text-sm">
-          <span className="text-muted-foreground">Conecta Google Drive para crear y abrir tus documentos directamente en Google Docs.</span>
-          <Button size="sm" onClick={connectGoogleDrive}>Conectar Google Drive</Button>
-        </div>
-      )}
-
-      {/* Caja grande: Archivo (carpetas + documentos) */}
+      {/* Caja grande: Archivo (carpetas + notas) */}
       <DndContext sensors={dndSensors} onDragEnd={onDragEnd}>
         <div className="space-y-4 rounded-2xl border-2 border-border bg-card/40 p-4 shadow-sm sm:p-6">
-          {/* Breadcrumb (también sirve para soltar carpetas/documentos y moverlos a un nivel superior) */}
+          {/* Breadcrumb (también sirve para soltar carpetas/notas y moverlas a un nivel superior) */}
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             {breadcrumb.map((b, i) => (
               <DropTarget key={b.id ?? "root"} id={`crumb:${b.id ?? "root"}`} className="flex items-center gap-1.5 rounded-full">
@@ -342,11 +302,6 @@ export function ArchivoPanel() {
                 </button>
               </DropTarget>
             ))}
-            {googleConnected && (
-              <button onClick={refreshAll} className="ml-1 rounded p-1 text-muted-foreground hover:text-foreground" title="Actualizar desde Drive">
-                <RefreshCw className="h-3.5 w-3.5" />
-              </button>
-            )}
           </div>
 
           {/* Toolbar */}
@@ -356,20 +311,22 @@ export function ArchivoPanel() {
               <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar en esta carpeta…" className="pl-8" />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setNewFolderOpen(true)}>
-                <FolderPlus className="h-4 w-4" /> Carpeta
+              {!isFixedFolder && (
+                <Button size="sm" variant="ghost" onClick={() => setNewFolderOpen(true)}>
+                  <FolderPlus className="h-4 w-4" /> Carpeta
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={openNewNote}>
+                <Plus className="h-4 w-4" /> Nota
               </Button>
-              <Button size="sm" variant="outline" onClick={openNewDoc}>
-                <Plus className="h-4 w-4" /> Documento
-              </Button>
-              {subfolders.length > 0 && (
+              {subfolders.some(f => !f.projectId) && (
                 <Button size="sm" variant="ghost" onClick={() => setManageFoldersOpen(true)}>
                   <Pencil className="h-4 w-4" /> Gestionar carpetas
                 </Button>
               )}
               {folderDocs.length > 0 && (
                 <Button size="sm" variant="ghost" onClick={() => setManageDocsOpen(true)}>
-                  <Pencil className="h-4 w-4" /> Gestionar documentos
+                  <Pencil className="h-4 w-4" /> Gestionar notas
                 </Button>
               )}
             </div>
@@ -384,7 +341,7 @@ export function ArchivoPanel() {
             </div>
           )}
 
-          {/* Documentos de la carpeta actual (arrastrables) */}
+          {/* Notas de la carpeta actual (arrastrables) */}
           {folderDocs.length === 0 && subfolders.length === 0 ? (
             <Empty msg="Esta carpeta está vacía." />
           ) : folderDocs.length > 0 ? (
@@ -394,14 +351,14 @@ export function ArchivoPanel() {
                   key={d.id}
                   doc={d}
                   linkedCount={apunteAudios.filter(a => a.documentId === d.id).length}
-                  onOpen={() => openDoc(d)}
+                  onOpen={() => openEditNote(d)}
                 />
               ))}
             </div>
           ) : null}
 
           <p className="text-[11px] text-muted-foreground">
-            Consejo: arrastra una carpeta o un documento sobre otra carpeta para moverlo dentro, o sobre el nombre de un nivel superior en la ruta de arriba para sacarlo.
+            Consejo: arrastra una carpeta o una nota sobre otra carpeta para moverla dentro, o sobre el nombre de un nivel superior en la ruta de arriba para sacarla. La carpeta "Proyectos" y las carpetas de cada proyecto se gestionan solas.
           </p>
         </div>
       </DndContext>
@@ -421,7 +378,7 @@ export function ArchivoPanel() {
         }
       >
         <p className="mb-3 text-xs text-muted-foreground">
-          Los audios se quedan aquí hasta que los vincules a un documento. En cuanto los asignas, desaparecen de esta lista.
+          Los audios se quedan aquí hasta que los vincules a una nota. En cuanto los asignas, desaparecen de esta lista.
         </p>
         {queuedAudios.length === 0 ? <Empty msg="No hay audios pendientes de asignar." /> : (
           <div className="space-y-2">
@@ -445,7 +402,7 @@ export function ArchivoPanel() {
                         <Link2 className="h-3.5 w-3.5" /> Vincular existente
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => openAudioNewDoc(a.id, a.title)}>
-                        <Plus className="h-3.5 w-3.5" /> Documento nuevo
+                        <Plus className="h-3.5 w-3.5" /> Nota nueva
                       </Button>
                       <Button size="icon" variant="ghost" onClick={() => delApunteAudio(a.id)}>
                         <Trash2 className="h-4 w-4 text-muted-foreground" />
@@ -474,7 +431,6 @@ export function ArchivoPanel() {
           <DialogHeader><DialogTitle>Nueva carpeta</DialogTitle></DialogHeader>
           <p className="text-xs text-muted-foreground">
             Se creará dentro de: <span className="font-medium text-foreground">{breadcrumb.map(b => b.label).join(" / ")}</span>
-            {googleConnected && " — también se creará en Google Drive."}
           </p>
           <Input value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="Nombre de la carpeta" onKeyDown={e => e.key === "Enter" && createFolder()} />
           <DialogFooter>
@@ -489,7 +445,7 @@ export function ArchivoPanel() {
         <DialogContent>
           <DialogHeader><DialogTitle>Gestionar carpetas</DialogTitle></DialogHeader>
           <div className="space-y-2">
-            {subfolders.map(f => (
+            {subfolders.filter(f => !f.projectId).map(f => (
               <div key={f.id} className="flex items-center gap-2">
                 <Input
                   defaultValue={f.name}
@@ -500,7 +456,7 @@ export function ArchivoPanel() {
                   size="icon"
                   variant="ghost"
                   onClick={() => {
-                    if (confirm(`¿Eliminar la carpeta "${f.name}"? Se borrará también su contenido (subcarpetas y documentos) y, si está sincronizada, se borrará igualmente en Google Drive.`)) {
+                    if (confirm(`¿Eliminar la carpeta "${f.name}"? Se borrará también su contenido (subcarpetas y notas).`)) {
                       delApunteFolder(f.id);
                     }
                   }}
@@ -509,7 +465,7 @@ export function ArchivoPanel() {
                 </Button>
               </div>
             ))}
-            {subfolders.length === 0 && <p className="text-xs text-muted-foreground">No hay carpetas en este nivel.</p>}
+            {subfolders.filter(f => !f.projectId).length === 0 && <p className="text-xs text-muted-foreground">No hay carpetas en este nivel.</p>}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setManageFoldersOpen(false)}>Cerrar</Button>
@@ -517,10 +473,10 @@ export function ArchivoPanel() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: gestionar documentos (nivel actual) */}
+      {/* Dialog: gestionar notas (nivel actual) */}
       <Dialog open={manageDocsOpen} onOpenChange={setManageDocsOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Gestionar documentos</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Gestionar notas</DialogTitle></DialogHeader>
           <div className="space-y-2">
             {folderDocs.map(d => (
               <div key={d.id} className="flex items-center gap-2">
@@ -529,18 +485,11 @@ export function ArchivoPanel() {
                   onBlur={(e) => e.target.value.trim() && e.target.value !== d.title && updateApunteDoc(d.id, { title: e.target.value.trim() })}
                   className="h-8"
                 />
-                {d.googleDocUrl && (
-                  <Button size="icon" variant="ghost" asChild>
-                    <a href={d.googleDocUrl} target="_blank" rel="noreferrer" title="Abrir en Google Docs">
-                      <ExternalLink className="h-4 w-4 text-muted-foreground" />
-                    </a>
-                  </Button>
-                )}
                 <Button
                   size="icon"
                   variant="ghost"
                   onClick={() => {
-                    if (confirm(`¿Eliminar el documento "${d.title}"? Se borrará también en Google Drive (a la papelera, no de forma permanente).`)) {
+                    if (confirm(`¿Eliminar la nota "${d.title}"?`)) {
                       delApunteDoc(d.id);
                     }
                   }}
@@ -549,7 +498,7 @@ export function ArchivoPanel() {
                 </Button>
               </div>
             ))}
-            {folderDocs.length === 0 && <p className="text-xs text-muted-foreground">No hay documentos en esta carpeta.</p>}
+            {folderDocs.length === 0 && <p className="text-xs text-muted-foreground">No hay notas en esta carpeta.</p>}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setManageDocsOpen(false)}>Cerrar</Button>
@@ -557,30 +506,8 @@ export function ArchivoPanel() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: nuevo documento */}
-      <Dialog open={newDocOpen} onOpenChange={setNewDocOpen}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
-          <DialogHeader><DialogTitle>Nuevo documento</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <Input value={newDocTitle} onChange={(e) => setNewDocTitle(e.target.value)} placeholder="Título" />
-            <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
-              Se creará como Google Doc dentro de: <span className="font-medium text-foreground">{breadcrumb.map(b => b.label).join(" / ")}</span>
-            </p>
-            <Textarea
-              value={newDocContent}
-              onChange={(e) => setNewDocContent(e.target.value)}
-              placeholder="Contenido inicial (opcional) — se pegará en el documento al crearlo…"
-              className="min-h-[200px] font-mono text-sm"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setNewDocOpen(false)}>Cancelar</Button>
-            <Button onClick={confirmNewDoc} disabled={!newDocTitle.trim() || creatingDoc}>
-              {creatingDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Crear y abrir en Drive
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Dialog: nueva nota / editar nota */}
+      <NoteEditorDialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen} folderId={node} editingId={editingNoteId} />
 
       {/* Dialog: confirmar subida de audio */}
       <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
@@ -590,7 +517,7 @@ export function ArchivoPanel() {
             <p className="truncate text-xs text-muted-foreground">{pendingFile?.name}</p>
             <Input value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="Título del audio" />
             <p className="text-[11px] text-muted-foreground">
-              Se transcribirá y resumirá automáticamente. Quedará en "Audio a texto" hasta que lo vincules a un documento.
+              Se transcribirá y resumirá automáticamente. Quedará en "Audio a texto" hasta que lo vincules a una nota.
             </p>
           </div>
           <DialogFooter>
@@ -600,12 +527,12 @@ export function ArchivoPanel() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: crear documento nuevo desde un audio */}
+      {/* Dialog: crear nota nueva desde un audio */}
       <Dialog open={!!audioDocFor} onOpenChange={(o) => !o && setAudioDocFor(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Nuevo documento para este audio</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Nueva nota para este audio</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <Input value={audioDocTitle} onChange={(e) => setAudioDocTitle(e.target.value)} placeholder="Título del documento" />
+            <Input value={audioDocTitle} onChange={(e) => setAudioDocTitle(e.target.value)} placeholder="Título de la nota" />
             <Select value={audioDocFolder} onValueChange={setAudioDocFolder}>
               <SelectTrigger><SelectValue placeholder="Carpeta" /></SelectTrigger>
               <SelectContent>
@@ -614,31 +541,29 @@ export function ArchivoPanel() {
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground">
-              Se creará en Google Docs y, si el audio ya tiene transcripción, se pegará el resumen y la transcripción dentro.
+              Si el audio ya tiene transcripción, se pegará el resumen y la transcripción dentro.
             </p>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAudioDocFor(null)}>Cancelar</Button>
-            <Button onClick={confirmAudioNewDoc} disabled={!audioDocTitle.trim() || creatingAudioDoc}>
-              {creatingAudioDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Crear y vincular
-            </Button>
+            <Button onClick={confirmAudioNewDoc} disabled={!audioDocTitle.trim()}>Crear y vincular</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog: vincular audio a un documento existente */}
+      {/* Dialog: vincular audio a una nota existente */}
       <Dialog open={!!audioLinkFor} onOpenChange={(o) => !o && setAudioLinkFor(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Vincular a un documento existente</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Vincular a una nota existente</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <Select value={audioLinkDoc} onValueChange={setAudioLinkDoc}>
-              <SelectTrigger><SelectValue placeholder="Elige un documento" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Elige una nota" /></SelectTrigger>
               <SelectContent>
                 {flatDocOptions.map(fo => <SelectItem key={fo.id} value={fo.id}>{fo.label}</SelectItem>)}
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground">
-              Cuando la transcripción esté lista, el resumen se añadirá al final de este documento.
+              Cuando la transcripción esté lista, el resumen se añadirá al final de esta nota.
             </p>
           </div>
           <DialogFooter>

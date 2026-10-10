@@ -3,15 +3,17 @@ import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 import { useAuth } from "@/features/auth/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { subMonths, parseISO } from "date-fns";
+import { subMonths, parseISO, startOfDay, subDays, format } from "date-fns";
 import {
   Task, Note, LinkedRef, Category, Priority, DayPart, Project, ProjectStage, ProjectStatus,
   ProjectCategory, ProjectUpdate,
-  ApunteFolder, ApunteDoc, ApunteAudio,
+  ApunteFolder, ApunteDoc, ApunteAudio, ApunteLink,
+  Objetivo, RetroEntry, RetroResult, ProjectExpense, ProjectTimeSlot, ProjectTimeEntry,
   TASKS_KEY, NOTES_KEY, NOTE_CATS_KEY, PROJECTS_KEY, PROJECT_CATS_KEY, PROJECT_UPDATES_KEY,
   DEFAULT_NOTE_CAT, uid, load,
   nextRecurrence,
   APUNTE_FOLDERS_KEY, APUNTE_DOCS_KEY, APUNTE_AUDIOS_KEY, APUNTES_AUDIO_BUCKET,
+  PROJECTS_ROOT_FOLDER_ID, OBJETIVOS_KEY, RETRO_ENTRIES_KEY, PROJECT_EXPENSES_KEY, PROJECT_TIME_ENTRIES_KEY,
 } from "./types";
 import { startTranscription, pollTranscription } from "./apuntes/apuntesApi";
 
@@ -53,35 +55,60 @@ interface CerebroCtx {
   projectUpdatesFor: (projectId: string) => ProjectUpdate[];
   projectNotes: (projectId: string) => Note[];
 
-  // Apuntes (carpetas + documentos + audios transcritos)
+  // Objetivos del proyecto (kanban interno)
+  objetivos: Objetivo[];
+  objetivosFor: (projectId: string) => Objetivo[];
+  addObjetivo: (projectId: string, title: string, stage?: ProjectStage) => Objetivo;
+  updateObjetivo: (id: string, patch: Partial<Objetivo>) => void;
+  delObjetivo: (id: string) => void;
+  moveObjetivoStage: (id: string, stage: ProjectStage) => void;
+
+  // Diario de retrospectiva
+  retroEntries: RetroEntry[];
+  retroEntriesFor: (projectId: string) => RetroEntry[];
+  addRetroEntry: (projectId: string, entry: { wentWell: string; toImprove: string; result: RetroResult }) => RetroEntry;
+  delRetroEntry: (id: string) => void;
+
+  // Presupuesto del proyecto
+  projectExpenses: ProjectExpense[];
+  expensesFor: (projectId: string) => ProjectExpense[];
+  addExpense: (projectId: string, expense: { title: string; amount: number; date?: string }) => ProjectExpense;
+  delExpense: (id: string) => void;
+  projectBudgetRemaining: (projectId: string) => number;
+
+  // Acumulador de tiempo dedicado
+  projectTimeEntries: ProjectTimeEntry[];
+  updateProjectTimeSchedule: (projectId: string, schedule: ProjectTimeSlot[]) => void;
+  pendingTimeConfirmations: (projectId: string) => { date: string; minutes: number }[];
+  confirmTimeSession: (projectId: string, date: string, minutes: number) => void;
+  declineTimeSession: (projectId: string, date: string) => void;
+  projectAccumulatedMinutes: (projectId: string) => number;
+
+  // Archivo (carpetas + notas locales + audios transcritos)
   apunteFolders: ApunteFolder[];
   apunteDocs: ApunteDoc[];
   apunteAudios: ApunteAudio[];
   addApunteFolder: (name: string, parentId?: string | null, color?: string) => ApunteFolder;
   renameApunteFolder: (id: string, name: string) => void;
-  delApunteFolder: (id: string) => Promise<void>;
+  delApunteFolder: (id: string) => void;
   folderPath: (folderId?: string | null) => ApunteFolder[];
   moveApunteFolder: (id: string, newParentId: string | null) => void;
   moveApunteDoc: (id: string, newFolderId: string | null) => void;
   convertNoteToDoc: (noteId: string) => Promise<void>;
-  addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null }) => Promise<ApunteDoc | null>;
+  addApunteDoc: (partial: { title: string; content?: string; folderId?: string | null; links?: ApunteLink[]; tags?: string[]; photos?: string[] }) => ApunteDoc;
   updateApunteDoc: (id: string, patch: Partial<ApunteDoc>) => void;
-  delApunteDoc: (id: string) => Promise<void>;
+  delApunteDoc: (id: string) => void;
   updateApunteAudio: (id: string, patch: Partial<ApunteAudio>) => void;
   delApunteAudio: (id: string) => void;
   linkApunteAudio: (audioId: string, documentId: string | null) => void;
   uploadApunteAudio: (file: File, opts?: { title?: string; documentId?: string | null }) => Promise<ApunteAudio>;
+  projectFolder: (projectId: string) => ApunteFolder | undefined;
   googleConnected: boolean;
   connectGoogleDrive: () => void;
-  driveFolders: { id: string; name: string; parentId: string | null }[];
-  driveRootId: string | null;
-  refreshDriveFolders: () => void;
-  refreshDocStatuses: () => void;
-  createDriveFolder: (name: string, parentId: string) => Promise<{ id: string; name: string; parentId: string | null } | null>;
 
   // Cross-section UI hooks
   openNoteSheet: (opts?: { linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }) => void;
-  openTaskDialog: (opts?: { linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; editId?: string }) => void;
+  openTaskDialog: (opts?: { linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; defaultProjectId?: string; editId?: string }) => void;
   openQuickCapture: () => void;
   createTaskFromNote: (note: Note) => void;
 
@@ -93,7 +120,7 @@ interface CerebroCtx {
   // internal modal state (consumed by mounted dialogs)
   _noteSheetState: { open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string };
   _setNoteSheetOpen: (open: boolean) => void;
-  _taskDialogState: { open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; editId?: string };
+  _taskDialogState: { open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; defaultProjectId?: string; editId?: string };
   _setTaskDialogOpen: (open: boolean) => void;
   _quickOpen: boolean;
   _setQuickOpen: (open: boolean) => void;
@@ -130,15 +157,16 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>(() => load(PROJECT_CATS_KEY, []));
   const [projectUpdates, setProjectUpdates] = useState<ProjectUpdate[]>(() => load(PROJECT_UPDATES_KEY, []));
   const [apunteFolders, setApunteFolders] = useState<ApunteFolder[]>(() => load(APUNTE_FOLDERS_KEY, []));
-  const [driveFolders, setDriveFolders] = useState<{ id: string; name: string; parentId: string | null }[]>([]);
-  const [driveRootId, setDriveRootId] = useState<string | null>(null);
-  const backfillInFlight = useRef<Set<string>>(new Set());
   const [apunteDocs, setApunteDocs] = useState<ApunteDoc[]>(() => load(APUNTE_DOCS_KEY, []));
   const [apunteAudios, setApunteAudios] = useState<ApunteAudio[]>(() => load(APUNTE_AUDIOS_KEY, []));
+  const [objetivos, setObjetivos] = useState<Objetivo[]>(() => load(OBJETIVOS_KEY, []));
+  const [retroEntries, setRetroEntries] = useState<RetroEntry[]>(() => load(RETRO_ENTRIES_KEY, []));
+  const [projectExpenses, setProjectExpenses] = useState<ProjectExpense[]>(() => load(PROJECT_EXPENSES_KEY, []));
+  const [projectTimeEntries, setProjectTimeEntries] = useState<ProjectTimeEntry[]>(() => load(PROJECT_TIME_ENTRIES_KEY, []));
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
 
   const [noteSheetState, setNoteSheetState] = useState<{ open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }>({ open: false });
-  const [taskDialogState, setTaskDialogState] = useState<{ open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; editId?: string }>({ open: false });
+  const [taskDialogState, setTaskDialogState] = useState<{ open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; defaultProjectId?: string; editId?: string }>({ open: false });
   const [quickOpen, setQuickOpen] = useState(false);
 
   const saveLocal = useCallback((key: string, value: unknown, label: string) => {
@@ -161,6 +189,26 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useEffect(() => { saveLocal(APUNTE_FOLDERS_KEY, apunteFolders, "las carpetas de apuntes"); }, [apunteFolders, saveLocal]);
   useEffect(() => { saveLocal(APUNTE_DOCS_KEY, apunteDocs, "los apuntes"); }, [apunteDocs, saveLocal]);
   useEffect(() => { saveLocal(APUNTE_AUDIOS_KEY, apunteAudios, "los audios de apuntes"); }, [apunteAudios, saveLocal]);
+  useEffect(() => { saveLocal(OBJETIVOS_KEY, objetivos, "los objetivos"); }, [objetivos, saveLocal]);
+  useEffect(() => { saveLocal(RETRO_ENTRIES_KEY, retroEntries, "las retrospectivas"); }, [retroEntries, saveLocal]);
+  useEffect(() => { saveLocal(PROJECT_EXPENSES_KEY, projectExpenses, "los gastos de proyecto"); }, [projectExpenses, saveLocal]);
+  useEffect(() => { saveLocal(PROJECT_TIME_ENTRIES_KEY, projectTimeEntries, "las sesiones de tiempo dedicado"); }, [projectTimeEntries, saveLocal]);
+
+  // Asegura que la carpeta fija "Proyectos" siempre existe y que cada proyecto
+  // tiene su subcarpeta dentro de ella (por si algún proyecto antiguo no la tenía).
+  useEffect(() => {
+    setApunteFolders(prev => {
+      let next = prev;
+      if (!next.some(f => f.id === PROJECTS_ROOT_FOLDER_ID)) {
+        next = [{ id: PROJECTS_ROOT_FOLDER_ID, name: "Proyectos", parentId: null, createdAt: new Date().toISOString() }, ...next];
+      }
+      const missing = projects.filter(p => !next.some(f => f.projectId === p.id));
+      if (missing.length > 0) {
+        next = [...next, ...missing.map(p => ({ id: uid(), name: p.title, parentId: PROJECTS_ROOT_FOLDER_ID, projectId: p.id, createdAt: p.createdAt }))];
+      }
+      return next === prev ? prev : next;
+    });
+  }, [projects]);
 
   const setTasksCb = useCallback((v: Task[]) => setTasks(filterOldCompletedTasks(v).map(t => ({ ...t, dayPart: t.dayPart ?? "morning" }))), []);
   const setNotesCb = useCallback((v: Note[]) => setNotes(v.map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))), []);
@@ -171,6 +219,10 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const setApunteFoldersCb = useCallback((v: ApunteFolder[]) => setApunteFolders(v), []);
   const setApunteDocsCb = useCallback((v: ApunteDoc[]) => setApunteDocs(v), []);
   const setApunteAudiosCb = useCallback((v: ApunteAudio[]) => setApunteAudios(v), []);
+  const setObjetivosCb = useCallback((v: Objetivo[]) => setObjetivos(v), []);
+  const setRetroEntriesCb = useCallback((v: RetroEntry[]) => setRetroEntries(v), []);
+  const setProjectExpensesCb = useCallback((v: ProjectExpense[]) => setProjectExpenses(v), []);
+  const setProjectTimeEntriesCb = useCallback((v: ProjectTimeEntry[]) => setProjectTimeEntries(v), []);
   useSupabaseSync("cerebro_tasks", tasks, setTasksCb);
   useSupabaseSync("cerebro_notes", notes, setNotesCb);
   useSupabaseSync("cerebro_notecats", noteCats, setNoteCatsCb);
@@ -180,6 +232,10 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useSupabaseSync("cerebro_apunte_folders", apunteFolders, setApunteFoldersCb);
   useSupabaseSync("cerebro_apunte_docs", apunteDocs, setApunteDocsCb);
   useSupabaseSync("cerebro_apunte_audios", apunteAudios, setApunteAudiosCb);
+  useSupabaseSync("cerebro_objetivos", objetivos, setObjetivosCb);
+  useSupabaseSync("cerebro_retro_entries", retroEntries, setRetroEntriesCb);
+  useSupabaseSync("cerebro_project_expenses", projectExpenses, setProjectExpensesCb);
+  useSupabaseSync("cerebro_project_time_entries", projectTimeEntries, setProjectTimeEntriesCb);
 
   const addTask: CerebroCtx["addTask"] = useCallback((partial) => {
     const t: Task = {
@@ -290,7 +346,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openTaskDialog: CerebroCtx["openTaskDialog"] = useCallback((opts) => {
-    setTaskDialogState({ open: true, linkedNoteId: opts?.linkedNoteId, linkedMilestoneId: opts?.linkedMilestoneId, defaultTitle: opts?.defaultTitle, defaultDate: opts?.defaultDate, defaultDayPart: opts?.defaultDayPart, editId: opts?.editId });
+    setTaskDialogState({ open: true, linkedNoteId: opts?.linkedNoteId, linkedMilestoneId: opts?.linkedMilestoneId, defaultTitle: opts?.defaultTitle, defaultDate: opts?.defaultDate, defaultDayPart: opts?.defaultDayPart, defaultProjectId: opts?.defaultProjectId, editId: opts?.editId });
   }, []);
 
   const openQuickCapture = useCallback(() => setQuickOpen(true), []);
@@ -309,26 +365,58 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       color: partial.color,
       status: partial.status ?? "inbox",
       categoryId: partial.categoryId,
+      startDate: partial.startDate,
       dueDate: partial.dueDate,
       linkedGoalId: partial.linkedGoalId,
       archived: false,
       createdAt: new Date().toISOString(),
+      budgetTotal: partial.budgetTotal,
+      timeSchedule: partial.timeSchedule ?? [],
+      timeDeclinedDates: [],
     };
     setProjects(prev => [p, ...prev]);
+    // Carpeta fija del proyecto dentro de "Proyectos", en Archivo.
+    setApunteFolders(prev => [...prev, {
+      id: uid(), name: p.title, parentId: PROJECTS_ROOT_FOLDER_ID, projectId: p.id, createdAt: p.createdAt,
+    }]);
     return p;
   }, []);
 
   const updateProject = useCallback((id: string, patch: Partial<Project>) => {
     setProjects(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+    if (patch.title) {
+      setApunteFolders(prev => prev.map(f => f.projectId === id ? { ...f, name: patch.title! } : f));
+    }
   }, []);
 
   const delProject = useCallback((id: string) => {
-    if (!confirm("¿Eliminar este proyecto? Las tareas y archivos vinculados se quedarán sin proyecto.")) return;
+    if (!confirm("¿Eliminar este proyecto? Las tareas se quedarán sin proyecto; su carpeta de Archivo, objetivos, presupuesto y retrospectiva se borrarán.")) return;
     setProjects(prev => prev.filter(p => p.id !== id));
     setTasks(prev => prev.map(t => t.projectId === id ? { ...t, projectId: undefined, stage: undefined } : t));
     setNotes(prev => prev.map(n => n.projectId === id ? { ...n, projectId: undefined } : n));
     setProjectUpdates(prev => prev.filter(u => u.projectId !== id));
-  }, []);
+    setObjetivos(prev => prev.filter(o => o.projectId !== id));
+    setRetroEntries(prev => prev.filter(r => r.projectId !== id));
+    setProjectExpenses(prev => prev.filter(e => e.projectId !== id));
+    setProjectTimeEntries(prev => prev.filter(t => t.projectId !== id));
+    const folder = apunteFolders.find(f => f.projectId === id);
+    if (folder) {
+      const idsToRemove = new Set<string>([folder.id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        apunteFolders.forEach(f => {
+          if (f.parentId && idsToRemove.has(f.parentId) && !idsToRemove.has(f.id)) { idsToRemove.add(f.id); grew = true; }
+        });
+      }
+      setApunteFolders(prev => prev.filter(f => !idsToRemove.has(f.id)));
+      const removedDocIds = new Set(apunteDocs.filter(d => d.folderId && idsToRemove.has(d.folderId)).map(d => d.id));
+      setApunteDocs(prev => prev.filter(d => !(d.folderId && idsToRemove.has(d.folderId))));
+      if (removedDocIds.size > 0) {
+        setApunteAudios(prev => prev.map(a => a.documentId && removedDocIds.has(a.documentId) ? { ...a, documentId: null } : a));
+      }
+    }
+  }, [apunteFolders, apunteDocs]);
 
   const moveProjectStatus = useCallback((projectId: string, status: ProjectStatus) => {
     setProjects(prev => prev.map(p => p.id === projectId ? { ...p, status, archived: status === "done" } : p));
@@ -398,13 +486,118 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
 
   const projectNotes = useCallback((projectId: string) => notes.filter(n => n.projectId === projectId), [notes]);
 
-  /* ---------- Archivo (árbol único de carpetas: notas, referencias, apuntes) ---------- */
+  /* ---------- Objetivos del proyecto (kanban interno) ---------- */
+  const objetivosFor = useCallback((projectId: string) => objetivos.filter(o => o.projectId === projectId), [objetivos]);
+
+  const addObjetivo: CerebroCtx["addObjetivo"] = useCallback((projectId, title, stage) => {
+    const o: Objetivo = { id: uid(), projectId, title: title.trim(), stage: stage ?? "todo", createdAt: new Date().toISOString() };
+    setObjetivos(prev => [...prev, o]);
+    return o;
+  }, []);
+
+  const updateObjetivo = useCallback((id: string, patch: Partial<Objetivo>) => {
+    setObjetivos(prev => prev.map(o => o.id === id ? { ...o, ...patch } : o));
+  }, []);
+
+  const delObjetivo = useCallback((id: string) => {
+    setObjetivos(prev => prev.filter(o => o.id !== id));
+  }, []);
+
+  const moveObjetivoStage = useCallback((id: string, stage: ProjectStage) => {
+    setObjetivos(prev => prev.map(o => o.id === id ? { ...o, stage } : o));
+  }, []);
+
+  /* ---------- Diario de retrospectiva ---------- */
+  const retroEntriesFor = useCallback((projectId: string) =>
+    retroEntries.filter(r => r.projectId === projectId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [retroEntries]);
+
+  const addRetroEntry: CerebroCtx["addRetroEntry"] = useCallback((projectId, entry) => {
+    const r: RetroEntry = {
+      id: uid(), projectId, wentWell: entry.wentWell.trim(), toImprove: entry.toImprove.trim(),
+      result: entry.result, createdAt: new Date().toISOString(),
+    };
+    setRetroEntries(prev => [r, ...prev]);
+    return r;
+  }, []);
+
+  const delRetroEntry = useCallback((id: string) => {
+    setRetroEntries(prev => prev.filter(r => r.id !== id));
+  }, []);
+
+  /* ---------- Presupuesto del proyecto ---------- */
+  const expensesFor = useCallback((projectId: string) =>
+    projectExpenses.filter(e => e.projectId === projectId).sort((a, b) => b.date.localeCompare(a.date)),
+    [projectExpenses]);
+
+  const addExpense: CerebroCtx["addExpense"] = useCallback((projectId, expense) => {
+    const e: ProjectExpense = {
+      id: uid(), projectId, title: expense.title.trim() || "Gasto", amount: expense.amount,
+      date: expense.date ?? new Date().toISOString(), createdAt: new Date().toISOString(),
+    };
+    setProjectExpenses(prev => [e, ...prev]);
+    return e;
+  }, []);
+
+  const delExpense = useCallback((id: string) => {
+    setProjectExpenses(prev => prev.filter(e => e.id !== id));
+  }, []);
+
+  const projectBudgetRemaining = useCallback((projectId: string) => {
+    const total = projects.find(p => p.id === projectId)?.budgetTotal ?? 0;
+    const spent = projectExpenses.filter(e => e.projectId === projectId).reduce((s, e) => s + e.amount, 0);
+    return total - spent;
+  }, [projects, projectExpenses]);
+
+  /* ---------- Acumulador de tiempo dedicado ---------- */
+  const updateProjectTimeSchedule = useCallback((projectId: string, schedule: ProjectTimeSlot[]) => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, timeSchedule: schedule } : p));
+  }, []);
+
+  /** Franjas programadas ya pasadas que todavía no tienen ni sesión confirmada ni
+   *  "no la hice" — hay que preguntarle al usuario por ellas. Mira como mucho 120
+   *  días hacia atrás (o desde que se creó/empezó el proyecto) para no iterar sin
+   *  límite en proyectos muy antiguos. */
+  const pendingTimeConfirmations: CerebroCtx["pendingTimeConfirmations"] = useCallback((projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project || !project.timeSchedule || project.timeSchedule.length === 0) return [];
+    const byWeekday = new Map(project.timeSchedule.map(s => [s.weekday, s.minutes]));
+    const confirmedDates = new Set(projectTimeEntries.filter(e => e.projectId === projectId).map(e => e.date));
+    const declinedDates = new Set(project.timeDeclinedDates ?? []);
+    const today = startOfDay(new Date());
+    const earliest = startOfDay(parseISO(project.startDate || project.createdAt));
+    const windowStart = subDays(today, 120);
+    const from = earliest > windowStart ? earliest : windowStart;
+    const toIdx = (js: number) => (js + 6) % 7;
+    const out: { date: string; minutes: number }[] = [];
+    for (let d = new Date(from); d < today; d.setDate(d.getDate() + 1)) {
+      const minutes = byWeekday.get(toIdx(d.getDay()));
+      if (minutes === undefined) continue;
+      const key = format(d, "yyyy-MM-dd");
+      if (confirmedDates.has(key) || declinedDates.has(key)) continue;
+      out.push({ date: key, minutes });
+    }
+    return out;
+  }, [projects, projectTimeEntries]);
+
+  const confirmTimeSession: CerebroCtx["confirmTimeSession"] = useCallback((projectId, date, minutes) => {
+    setProjectTimeEntries(prev => [...prev, { id: uid(), projectId, date, minutes, createdAt: new Date().toISOString() }]);
+  }, []);
+
+  const declineTimeSession: CerebroCtx["declineTimeSession"] = useCallback((projectId, date) => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, timeDeclinedDates: [...(p.timeDeclinedDates ?? []), date] } : p));
+  }, []);
+
+  const projectAccumulatedMinutes = useCallback((projectId: string) =>
+    projectTimeEntries.filter(e => e.projectId === projectId).reduce((s, e) => s + e.minutes, 0),
+    [projectTimeEntries]);
+
+  const projectFolder = useCallback((projectId: string) => apunteFolders.find(f => f.projectId === projectId), [apunteFolders]);
+
+  /* ---------- Archivo (árbol de carpetas 100% local) ---------- */
   const addApunteFolder: CerebroCtx["addApunteFolder"] = useCallback((name, parentId, color) => {
     const f: ApunteFolder = { id: uid(), name: name.trim(), color, parentId: parentId ?? null, createdAt: new Date().toISOString() };
     setApunteFolders(prev => [...prev, f]);
-    // El espejo en Google Drive lo crea, en segundo plano, el efecto de sincronización
-    // más abajo (el mismo que hace el "backfill" de carpetas antiguas) — es el único
-    // sitio que crea carpetas en Drive, para no acabar creando la misma dos veces.
     return f;
   }, []);
 
@@ -412,34 +605,11 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     setApunteFolders(prev => prev.map(f => f.id === id ? { ...f, name: name.trim() || f.name } : f));
   }, []);
 
-  /** Borra una carpeta Y todo lo que tenga dentro (subcarpetas, documentos y notas),
-   *  tanto localmente como en Drive — al borrar una carpeta en Drive se borra también
-   *  (a la papelera) todo lo que contiene, así que replicamos ese mismo comportamiento
-   *  aquí para que ambos lados queden siempre iguales. Si falla el borrado en Drive,
-   *  no se toca nada localmente, para no desincronizar. */
-  const delApunteFolder: CerebroCtx["delApunteFolder"] = useCallback(async (id) => {
+  /** Borra una carpeta Y todo lo que tenga dentro (subcarpetas y notas). */
+  const delApunteFolder: CerebroCtx["delApunteFolder"] = useCallback((id) => {
     const target = apunteFolders.find(f => f.id === id);
     if (!target) return;
 
-    if (target.driveFolderId && session?.access_token) {
-      try {
-        const res = await fetch("/api/google-drive-delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ fileId: target.driveFolderId }),
-        });
-        if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
-          toast.error("No se pudo borrar la carpeta en Drive", { description: json?.error });
-          return;
-        }
-      } catch (e: any) {
-        toast.error("No se pudo borrar la carpeta en Drive", { description: e?.message });
-        return;
-      }
-    }
-
-    // Recoge esta carpeta y todas sus subcarpetas (recursivo).
     const idsToRemove = new Set<string>([id]);
     let grew = true;
     while (grew) {
@@ -455,11 +625,10 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     setApunteFolders(prev => prev.filter(f => !idsToRemove.has(f.id)));
     const removedDocIds = new Set(apunteDocs.filter(d => d.folderId && idsToRemove.has(d.folderId)).map(d => d.id));
     setApunteDocs(prev => prev.filter(d => !(d.folderId && idsToRemove.has(d.folderId))));
-    setNotes(prev => prev.filter(n => !(n.folderId && idsToRemove.has(n.folderId))));
     if (removedDocIds.size > 0) {
       setApunteAudios(prev => prev.map(a => a.documentId && removedDocIds.has(a.documentId) ? { ...a, documentId: null } : a));
     }
-  }, [apunteFolders, apunteDocs, session]);
+  }, [apunteFolders, apunteDocs]);
 
   const folderPath = useCallback((folderId?: string | null) => {
     const chain: ApunteFolder[] = [];
@@ -470,24 +639,6 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     }
     return chain;
   }, [apunteFolders]);
-
-  /** Mueve un archivo de Drive (carpeta o documento) a otra carpeta padre. Best-effort: si falla, se queda como estaba en Drive. */
-  const moveDriveFile = useCallback(async (fileId: string, newParentDriveId: string) => {
-    if (!session?.access_token) return;
-    try {
-      const res = await fetch("/api/google-drive-move", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ fileId, newParentId: newParentDriveId }),
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        toast.error("Se movió aquí, pero no en Drive", { description: json?.error });
-      }
-    } catch (e: any) {
-      toast.error("Se movió aquí, pero no en Drive", { description: e?.message });
-    }
-  }, [session]);
 
   const moveApunteFolder: CerebroCtx["moveApunteFolder"] = useCallback((id, newParentId) => {
     if (id === newParentId) return;
@@ -506,24 +657,22 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     }
     const folder = apunteFolders.find(f => f.id === id);
     if (!folder || (folder.parentId ?? null) === (newParentId ?? null)) return;
-    setApunteFolders(prev => prev.map(f => f.id === id ? { ...f, parentId: newParentId } : f));
-    if (folder.driveFolderId) {
-      const newParentDriveId = newParentId ? apunteFolders.find(f => f.id === newParentId)?.driveFolderId : driveRootId;
-      if (newParentDriveId) moveDriveFile(folder.driveFolderId, newParentDriveId);
+    if (folder.projectId) {
+      toast.error("La carpeta de un proyecto no se puede mover.");
+      return;
     }
-  }, [apunteFolders, driveRootId, moveDriveFile]);
+    setApunteFolders(prev => prev.map(f => f.id === id ? { ...f, parentId: newParentId } : f));
+  }, [apunteFolders]);
 
   const moveApunteDoc: CerebroCtx["moveApunteDoc"] = useCallback((id, newFolderId) => {
     const doc = apunteDocs.find(d => d.id === id);
     if (!doc || (doc.folderId ?? null) === (newFolderId ?? null)) return;
     setApunteDocs(prev => prev.map(d => d.id === id ? { ...d, folderId: newFolderId, updatedAt: new Date().toISOString() } : d));
-    if (doc.googleDocId) {
-      const newParentDriveId = newFolderId ? apunteFolders.find(f => f.id === newFolderId)?.driveFolderId : driveRootId;
-      if (newParentDriveId) moveDriveFile(doc.googleDocId, newParentDriveId);
-    }
-  }, [apunteDocs, apunteFolders, driveRootId, moveDriveFile]);
+  }, [apunteDocs]);
 
-  /** Crea un Google Doc real (en la carpeta de Drive dada, si la hay) y le pega el contenido inicial. */
+  /** Crea un Google Doc real y le pega el contenido inicial. Solo lo usa ya
+   *  "convertNoteToDoc", para las notas de Hitos/Roadmap — el Archivo ya no
+   *  tiene ninguna relación con Drive. */
   const createGoogleDoc = useCallback(async (
     title: string,
     folderDriveId?: string | null,
@@ -557,94 +706,42 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
 
   const convertNoteToDoc: CerebroCtx["convertNoteToDoc"] = useCallback(async (noteId) => {
     if (!session?.access_token) {
-      toast.error("Conecta Google Drive primero", { description: "Ve a Archivo para conectarlo." });
+      toast.error("Conecta Google Drive primero");
       return;
     }
     const note = notes.find(n => n.id === noteId);
     if (!note) return;
-    const folderDriveId = note.folderId ? apunteFolders.find(f => f.id === note.folderId)?.driveFolderId : undefined;
-    const created = await createGoogleDoc(note.title, folderDriveId, note.content);
+    const created = await createGoogleDoc(note.title, undefined, note.content);
     if (!created) return;
     setNotes(prev => prev.map(n => n.id === noteId ? { ...n, googleDocId: created.googleDocId, googleDocUrl: created.googleDocUrl } : n));
     toast.success("Convertido a Google Doc", { description: note.title });
-  }, [session, notes, apunteFolders, createGoogleDoc]);
+  }, [session, notes, createGoogleDoc]);
 
-  const addApunteDoc: CerebroCtx["addApunteDoc"] = useCallback(async (partial) => {
-    if (!googleConnected || !session?.access_token) {
-      toast.error("Conecta Google Drive primero", { description: "Necesitas Drive conectado para crear documentos." });
-      return null;
-    }
-    const folderDriveId = partial.folderId
-      ? apunteFolders.find(f => f.id === partial.folderId)?.driveFolderId
-      : driveRootId;
-    const created = await createGoogleDoc(partial.title, folderDriveId, partial.content);
-    if (!created) return null;
-
+  const addApunteDoc: CerebroCtx["addApunteDoc"] = useCallback((partial) => {
     const now = new Date().toISOString();
     const d: ApunteDoc = {
       id: uid(),
       folderId: partial.folderId ?? null,
       title: partial.title.trim() || "Sin título",
-      content: "",
-      googleDocId: created.googleDocId,
-      googleDocUrl: created.googleDocUrl,
+      content: partial.content ?? "",
+      links: partial.links ?? [],
+      photos: partial.photos ?? [],
+      tags: partial.tags ?? [],
       createdAt: now,
       updatedAt: now,
     };
     setApunteDocs(prev => [d, ...prev]);
     return d;
-  }, [googleConnected, session, apunteFolders, driveRootId, createGoogleDoc]);
+  }, []);
 
   const updateApunteDoc = useCallback((id: string, patch: Partial<ApunteDoc>) => {
     setApunteDocs(prev => prev.map(d => d.id === id ? { ...d, ...patch, updatedAt: new Date().toISOString() } : d));
   }, []);
 
-  const delApunteDoc: CerebroCtx["delApunteDoc"] = useCallback(async (id) => {
-    const doc = apunteDocs.find(d => d.id === id);
-    if (doc?.googleDocId && session?.access_token) {
-      try {
-        const res = await fetch("/api/google-drive-delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ fileId: doc.googleDocId }),
-        });
-        if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
-          toast.error("No se pudo borrar el documento en Drive", { description: json?.error });
-          return; // no lo quitamos localmente si no se pudo borrar en Drive, para no desincronizar
-        }
-      } catch (e: any) {
-        toast.error("No se pudo borrar el documento en Drive", { description: e?.message });
-        return;
-      }
-    }
+  const delApunteDoc: CerebroCtx["delApunteDoc"] = useCallback((id) => {
     setApunteDocs(prev => prev.filter(d => d.id !== id));
     setApunteAudios(prev => prev.map(a => a.documentId === id ? { ...a, documentId: null } : a));
-  }, [apunteDocs, session]);
-
-  /** Detecta documentos borrados directamente en Drive (fuera de la web) y los refleja aquí. */
-  const refreshDocStatuses = useCallback(() => {
-    if (!session?.access_token) return;
-    const ids = apunteDocs.filter(d => d.googleDocId).map(d => d.googleDocId as string);
-    if (ids.length === 0) return;
-    fetch("/api/google-drive-doc-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ ids }),
-    })
-      .then(r => r.json())
-      .then(j => {
-        const removed: string[] = Array.isArray(j.removed) ? j.removed : [];
-        if (removed.length === 0) return;
-        const removedSet = new Set(removed);
-        setApunteDocs(prev => prev.filter(d => !(d.googleDocId && removedSet.has(d.googleDocId))));
-        setApunteAudios(prev => prev.map(a => {
-          const doc = apunteDocs.find(d => d.id === a.documentId);
-          return doc?.googleDocId && removedSet.has(doc.googleDocId) ? { ...a, documentId: null } : a;
-        }));
-      })
-      .catch(() => { /* se reintentará en el próximo refresco */ });
-  }, [session, apunteDocs]);
+  }, []);
 
   const updateApunteAudio = useCallback((id: string, patch: Partial<ApunteAudio>) => {
     setApunteAudios(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
@@ -676,24 +773,11 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
 ### 🎙️ ${audio.title}
 ${audio.summary || audio.transcript || ""}
 `;
-      const doc = apunteDocs.find(d => d.id === documentId);
-      if (doc?.googleDocId) {
-        if (session?.access_token) {
-          fetch("/api/google-docs-append", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-            body: JSON.stringify({ googleDocId: doc.googleDocId, text: addition }),
-          }).catch(() => {
-            toast.error("No se pudo añadir el resumen al Google Doc", { description: doc.title });
-          });
-        }
-      } else if (doc) {
-        setApunteDocs(prev => prev.map(d => d.id === documentId
-          ? { ...d, content: (d.content || "") + addition, updatedAt: new Date().toISOString() }
-          : d));
-      }
+      setApunteDocs(prev => prev.map(d => d.id === documentId
+        ? { ...d, content: (d.content || "") + addition, updatedAt: new Date().toISOString() }
+        : d));
     }
-  }, [apunteAudios, apunteDocs, session]);
+  }, [apunteAudios]);
 
   const uploadApunteAudio: CerebroCtx["uploadApunteAudio"] = useCallback(async (file, opts) => {
     if (!user) throw new Error("Debes iniciar sesión.");
@@ -737,8 +821,6 @@ ${audio.summary || audio.transcript || ""}
 
   // Sondeo periódico de transcripciones en curso
   const pollingRef = useRef<Set<string>>(new Set());
-  const apunteDocsRef = useRef<ApunteDoc[]>(apunteDocs);
-  useEffect(() => { apunteDocsRef.current = apunteDocs; }, [apunteDocs]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -751,22 +833,9 @@ ${audio.summary || audio.transcript || ""}
               updateApunteAudio(a.id, { status: "completed", transcript: res.transcript, summary: res.summary });
               if (a.documentId) {
                 const addition = `\n\n---\n### 🎙️ ${a.title}\n${res.summary || res.transcript || ""}\n`;
-                const doc = apunteDocsRef.current.find(d => d.id === a.documentId);
-                if (doc?.googleDocId) {
-                  if (session?.access_token) {
-                    fetch("/api/google-docs-append", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-                      body: JSON.stringify({ googleDocId: doc.googleDocId, text: addition }),
-                    }).catch(() => {
-                      toast.error("No se pudo añadir el resumen al Google Doc", { description: doc.title });
-                    });
-                  }
-                } else {
-                  setApunteDocs(prev => prev.map(d => d.id === a.documentId
-                    ? { ...d, content: (d.content || "") + addition, updatedAt: new Date().toISOString() }
-                    : d));
-                }
+                setApunteDocs(prev => prev.map(d => d.id === a.documentId
+                  ? { ...d, content: (d.content || "") + addition, updatedAt: new Date().toISOString() }
+                  : d));
               }
             } else if (res.status === "failed") {
               updateApunteAudio(a.id, { status: "error", errorMessage: res.error || "La transcripción falló." });
@@ -777,7 +846,7 @@ ${audio.summary || audio.transcript || ""}
       });
     }, 7000);
     return () => clearInterval(interval);
-  }, [apunteAudios, updateApunteAudio, session]);
+  }, [apunteAudios, updateApunteAudio]);
 
   /* ---------- Conexión con Google Drive/Docs ---------- */
   useEffect(() => {
@@ -811,177 +880,6 @@ ${audio.summary || audio.transcript || ""}
     window.location.href = `/api/google-auth-start?uid=${encodeURIComponent(user.id)}`;
   }, [user]);
 
-  /* ---------- Árbol de carpetas de Google Drive (en vivo) ---------- */
-  const refreshDriveFolders = useCallback(() => {
-    if (!session?.access_token) return;
-    fetch("/api/google-drive-tree", { headers: { Authorization: `Bearer ${session.access_token}` } })
-      .then(r => r.json())
-      .then(j => {
-        if (j.folders) {
-          setDriveFolders(j.folders);
-          setDriveRootId(j.rootId || null);
-        }
-      })
-      .catch(() => { /* se reintentará en el próximo refresco */ });
-  }, [session]);
-
-  useEffect(() => {
-    if (googleConnected) { refreshDriveFolders(); refreshDocStatuses(); }
-  }, [googleConnected, refreshDriveFolders, refreshDocStatuses]);
-
-  useEffect(() => {
-    const onFocus = () => { if (googleConnected) { refreshDriveFolders(); refreshDocStatuses(); } };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [googleConnected, refreshDriveFolders, refreshDocStatuses]);
-
-  const createDriveFolder: CerebroCtx["createDriveFolder"] = useCallback(async (name, parentId) => {
-    if (!session?.access_token) return null;
-    try {
-      const res = await fetch("/api/google-drive-create-folder", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ name, parentId }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error("No se pudo crear la carpeta en Drive", { description: json?.error });
-        return null;
-      }
-      const folder = { id: json.id as string, name: json.name as string, parentId: json.parentId as string };
-      setDriveFolders(prev => [...prev, folder]);
-      return folder;
-    } catch (e: any) {
-      toast.error("No se pudo crear la carpeta en Drive", { description: e?.message });
-      return null;
-    }
-  }, [session]);
-
-  // Reconciliación bidireccional con Drive, cada vez que se refresca el árbol:
-  //  1) Carpetas borradas directamente en Drive (fuera de la web) se borran también
-  //     aquí (junto con sus subcarpetas locales y lo que contengan), para que una
-  //     carpeta que ya no existe en Drive tampoco siga apareciendo en la web.
-  //  2) Carpetas nuevas en Drive (creadas fuera de la web) se reflejan aquí como
-  //     carpetas locales.
-  useEffect(() => {
-    if (!googleConnected || driveFolders.length === 0) return;
-    const driveIds = new Set(driveFolders.map(df => df.id));
-    let removedIds: Set<string> | null = null;
-
-    setApunteFolders(prev => {
-      const removed = new Set(prev.filter(f => f.driveFolderId && !driveIds.has(f.driveFolderId)).map(f => f.id));
-      let grew = true;
-      while (grew) {
-        grew = false;
-        prev.forEach(f => {
-          if (f.parentId && removed.has(f.parentId) && !removed.has(f.id)) { removed.add(f.id); grew = true; }
-        });
-      }
-      const remaining = prev.filter(f => !removed.has(f.id));
-
-      const byDriveId = new Map(remaining.filter(f => f.driveFolderId).map(f => [f.driveFolderId as string, f]));
-      const additions: ApunteFolder[] = [];
-      const resolveLocalParent = (driveParentId: string | null): string | null | undefined => {
-        if (driveParentId === driveRootId) return null;
-        if (!driveParentId) return undefined;
-        const match = byDriveId.get(driveParentId) ?? additions.find(f => f.driveFolderId === driveParentId);
-        return match ? match.id : undefined;
-      };
-      // Varias pasadas para que las subcarpetas de carpetas recién creadas también entren.
-      for (let pass = 0; pass < 4; pass++) {
-        driveFolders.forEach(df => {
-          if (byDriveId.has(df.id) || additions.some(a => a.driveFolderId === df.id)) return;
-          const localParent = resolveLocalParent(df.parentId);
-          if (localParent === undefined) return; // el padre aún no está mirado; se intentará en la siguiente pasada
-          additions.push({ id: uid(), name: df.name, parentId: localParent, driveFolderId: df.id, createdAt: new Date().toISOString() });
-        });
-      }
-
-      if (removed.size === 0 && additions.length === 0) return prev;
-      if (removed.size > 0) removedIds = removed;
-      return [...remaining, ...additions];
-    });
-
-    if (removedIds) {
-      const removed = removedIds;
-      const removedDocIds = new Set<string>();
-      setApunteDocs(prev => {
-        prev.forEach(d => { if (d.folderId && removed.has(d.folderId)) removedDocIds.add(d.id); });
-        return prev.filter(d => !(d.folderId && removed.has(d.folderId)));
-      });
-      setNotes(prev => prev.filter(n => !(n.folderId && removed.has(n.folderId))));
-      if (removedDocIds.size > 0) {
-        setApunteAudios(prev => prev.map(a => a.documentId && removedDocIds.has(a.documentId) ? { ...a, documentId: null } : a));
-      }
-    }
-  }, [driveFolders, driveRootId, googleConnected]);
-
-  // Sincronización inicial (local → Drive): carpetas creadas antes de que la conexión
-  // con Google Drive funcionara nunca llegaron a espejarse allí. En cuanto detectamos
-  // conexión, creamos en Drive cualquier carpeta local que todavía no tenga pareja,
-  // respetando la jerarquía (primero el padre, luego los hijos, en pasadas sucesivas
-  // a medida que cada creación deja al siguiente nivel listo para continuar).
-  useEffect(() => {
-    if (!googleConnected || !driveRootId || !session?.access_token) return;
-    const pending = apunteFolders.filter(f => !f.driveFolderId && !backfillInFlight.current.has(f.id));
-    pending.forEach(f => {
-      const parentDriveId = f.parentId
-        ? apunteFolders.find(x => x.id === f.parentId)?.driveFolderId
-        : driveRootId;
-      if (!parentDriveId) return; // el padre todavía no tiene carpeta en Drive; se reintenta cuando la tenga
-      backfillInFlight.current.add(f.id);
-      createDriveFolder(f.name, parentDriveId).then(drive => {
-        backfillInFlight.current.delete(f.id);
-        if (drive) {
-          setApunteFolders(prev => prev.map(x => x.id === f.id ? { ...x, driveFolderId: drive.id } : x));
-        }
-      });
-    });
-  }, [apunteFolders, googleConnected, driveRootId, session, createDriveFolder]);
-
-  // Migración de documentos antiguos: ahora Archivo ya no distingue notas/referencias,
-  // todo es "documento" y vive siempre como Google Doc. Las notas/referencias que ya
-  // estaban archivadas en una carpeta se convierten en documentos reales (se crea su
-  // Google Doc y se elimina la nota, que queda sustituida por el documento). Los
-  // documentos que ya existían pero nunca llegaron a crearse en Drive (porque la
-  // conexión no funcionaba) se crean ahora también.
-  const legacyBackfillInFlight = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!googleConnected || !session?.access_token) return;
-
-    const notesToMigrate = notes.filter(n => n.folderId && !legacyBackfillInFlight.current.has(`note:${n.id}`));
-    notesToMigrate.forEach(n => {
-      const folderDriveId = n.folderId ? apunteFolders.find(f => f.id === n.folderId)?.driveFolderId : driveRootId;
-      if (!folderDriveId) return; // la carpeta todavía no tiene su Drive id; se reintenta cuando lo tenga
-      legacyBackfillInFlight.current.add(`note:${n.id}`);
-      createGoogleDoc(n.title, folderDriveId, n.content).then(created => {
-        legacyBackfillInFlight.current.delete(`note:${n.id}`);
-        if (!created) return;
-        const now = new Date().toISOString();
-        setApunteDocs(prev => [{
-          id: uid(), folderId: n.folderId ?? null, title: n.title, content: "",
-          googleDocId: created.googleDocId, googleDocUrl: created.googleDocUrl,
-          createdAt: n.createdAt || now, updatedAt: now,
-        }, ...prev]);
-        setNotes(prev => prev.filter(x => x.id !== n.id));
-      });
-    });
-
-    const docsToBackfill = apunteDocs.filter(d => !d.googleDocId && !legacyBackfillInFlight.current.has(`doc:${d.id}`));
-    docsToBackfill.forEach(d => {
-      const folderDriveId = d.folderId ? apunteFolders.find(f => f.id === d.folderId)?.driveFolderId : driveRootId;
-      if (!folderDriveId) return;
-      legacyBackfillInFlight.current.add(`doc:${d.id}`);
-      createGoogleDoc(d.title, folderDriveId, d.content).then(created => {
-        legacyBackfillInFlight.current.delete(`doc:${d.id}`);
-        if (!created) return;
-        setApunteDocs(prev => prev.map(x => x.id === d.id
-          ? { ...x, googleDocId: created.googleDocId, googleDocUrl: created.googleDocUrl, content: "" }
-          : x));
-      });
-    });
-  }, [googleConnected, session, notes, apunteDocs, apunteFolders, driveRootId, createGoogleDoc]);
-
   const tasksByMilestone = useCallback((id: string) => tasks.filter(t => t.linkedMilestoneId === id), [tasks]);
   const notesByMilestone = useCallback((id: string) => notes.filter(n => n.linkedTo?.kind === "milestone" && n.linkedTo.id === id), [notes]);
   const milestoneProgress = useCallback((id: string) => {
@@ -1003,7 +901,11 @@ ${audio.summary || audio.transcript || ""}
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive,
-    driveFolders, driveRootId, refreshDriveFolders, refreshDocStatuses, createDriveFolder,
+    objetivos, objetivosFor, addObjetivo, updateObjetivo, delObjetivo, moveObjetivoStage,
+    retroEntries, retroEntriesFor, addRetroEntry, delRetroEntry,
+    projectExpenses, expensesFor, addExpense, delExpense, projectBudgetRemaining,
+    projectTimeEntries, updateProjectTimeSchedule, pendingTimeConfirmations, confirmTimeSession, declineTimeSession, projectAccumulatedMinutes,
+    projectFolder,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     _noteSheetState: noteSheetState,
@@ -1024,7 +926,11 @@ ${audio.summary || audio.transcript || ""}
     addApunteDoc, updateApunteDoc, delApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio,
     googleConnected, connectGoogleDrive,
-    driveFolders, driveRootId, refreshDriveFolders, refreshDocStatuses, createDriveFolder,
+    objetivos, objetivosFor, addObjetivo, updateObjetivo, delObjetivo, moveObjetivoStage,
+    retroEntries, retroEntriesFor, addRetroEntry, delRetroEntry,
+    projectExpenses, expensesFor, addExpense, delExpense, projectBudgetRemaining,
+    projectTimeEntries, updateProjectTimeSchedule, pendingTimeConfirmations, confirmTimeSession, declineTimeSession, projectAccumulatedMinutes,
+    projectFolder,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     noteSheetState, taskDialogState, quickOpen,

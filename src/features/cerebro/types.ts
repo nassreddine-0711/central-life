@@ -88,12 +88,82 @@ export interface Project {
   color?: string;
   status: ProjectStatus;
   categoryId?: string;
+  /** Fecha de inicio del proyecto. */
+  startDate?: string;
+  /** Fecha final del proyecto (fecha límite / cuenta atrás). */
   dueDate?: string;
   /** Id de un Goal (RoadMap) marcado como proyecto, si viene de ahí. */
   linkedGoalId?: string;
   archived?: boolean;
   createdAt: string;
+  /** Presupuesto total asignado al proyecto (los gastos viven en ProjectExpense). */
+  budgetTotal?: number;
+  /** Horario semanal del acumulador de tiempo dedicado: qué días y cuántos minutos. */
+  timeSchedule?: ProjectTimeSlot[];
+  /** Fechas (yyyy-MM-dd) de sesiones programadas que el usuario dijo que NO hizo,
+   *  para no volver a preguntar por ellas. */
+  timeDeclinedDates?: string[];
 }
+
+/** Una franja del horario semanal del acumulador de tiempo: 0=Lunes ... 6=Domingo. */
+export interface ProjectTimeSlot {
+  weekday: number;
+  minutes: number;
+}
+
+/** Una sesion de tiempo dedicado ya confirmada por el usuario (se acumula). */
+export interface ProjectTimeEntry {
+  id: string;
+  projectId: string;
+  /** Fecha (yyyy-MM-dd) del dia programado al que corresponde. */
+  date: string;
+  minutes: number;
+  createdAt: string;
+}
+
+export const PROJECT_TIME_ENTRIES_KEY = "cerebro.projectTimeEntries.v1";
+
+/** Un gasto dentro del presupuesto de un proyecto. */
+export interface ProjectExpense {
+  id: string;
+  projectId: string;
+  title: string;
+  amount: number;
+  date: string;
+  createdAt: string;
+}
+
+export const PROJECT_EXPENSES_KEY = "cerebro.projectExpenses.v1";
+
+/** Un "objetivo" del proyecto: el kanban interno (antes era de tareas) ahora vive aqui. */
+export interface Objetivo {
+  id: string;
+  projectId: string;
+  title: string;
+  description?: string;
+  stage: ProjectStage;
+  createdAt: string;
+}
+
+export const OBJETIVOS_KEY = "cerebro.objetivos.v1";
+
+export type RetroResult = "achieved" | "pending";
+export const RETRO_RESULT_LABEL: Record<RetroResult, string> = {
+  achieved: "Logrado",
+  pending: "Pendiente de ajustar",
+};
+
+/** Una entrada del diario de retrospectiva de un proyecto. */
+export interface RetroEntry {
+  id: string;
+  projectId: string;
+  wentWell: string;
+  toImprove: string;
+  result: RetroResult;
+  createdAt: string;
+}
+
+export const RETRO_ENTRIES_KEY = "cerebro.retroEntries.v1";
 
 export const PROJECTS_KEY = "cerebro.projects.v1";
 
@@ -121,30 +191,40 @@ export interface ProjectUpdate {
 
 export const PROJECT_UPDATES_KEY = "cerebro.projectUpdates.v1";
 
-/* ---------- Archivo (árbol de carpetas único: notas, referencias, apuntes) ----------
-   Este mismo árbol de carpetas es compartido por Notas/Referencias y por los
-   Apuntes de la uni. Cada carpeta puede tener un espejo real en Google Drive
-   (driveFolderId); crear una carpeta aquí crea la carpeta en Drive, y las
-   carpetas nuevas creadas directamente en Drive se reflejan aquí al refrescar. */
+/* ---------- Archivo (árbol de carpetas 100% local) ----------
+   Árbol de carpetas propio de la app, sin ninguna relación con Google Drive.
+   Hay una carpeta fija "Proyectos" (PROJECTS_ROOT_FOLDER_ID) que siempre existe;
+   al crear un proyecto se le crea automáticamente una subcarpeta ahí dentro
+   (vinculada por projectId), que se renombra/borra junto con el proyecto. */
+export const PROJECTS_ROOT_FOLDER_ID = "proyectos-root";
+
 export interface ApunteFolder {
   id: string;
   name: string;
   color?: string;
   /** Carpeta padre en el árbol local (null/undefined = raíz). */
   parentId?: string | null;
-  /** Id de la carpeta espejo en Google Drive, si esta carpeta está sincronizada. */
-  driveFolderId?: string | null;
+  /** Si esta es la carpeta fija de un proyecto (se gestiona junto con él). */
+  projectId?: string;
   createdAt: string;
 }
 
+/** Un enlace guardado dentro de una nota. */
+export interface ApunteLink {
+  id: string;
+  url: string;
+  label?: string;
+}
+
+/** Una nota dentro del Archivo: texto + enlaces + fotos + etiquetas, todo local. */
 export interface ApunteDoc {
   id: string;
   folderId?: string | null;
   title: string;
   content: string;
-  /** Si el apunte vive como Google Doc real (en vez de local). */
-  googleDocId?: string;
-  googleDocUrl?: string;
+  links: ApunteLink[];
+  photos: string[];
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 }

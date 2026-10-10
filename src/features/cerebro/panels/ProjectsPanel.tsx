@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { format } from "date-fns";
+import { format, differenceInCalendarDays } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, useSensor, useSensors,
@@ -7,8 +7,9 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  Plus, Inbox, FolderKanban, Settings2, Trash2, Calendar as CalendarIcon, X as XIcon,
-  ArrowRight, ChevronRight, GripVertical, MessageSquarePlus, ListTodo, FileText, Link2, Unlink,
+  Plus, Inbox, FolderKanban, Settings2, Trash2, Calendar as CalendarIcon, Hourglass,
+  ArrowRight, ChevronRight, GripVertical, MessageSquarePlus, ListTodo, FileText, Target,
+  Wallet, BookOpen, Clock, Check, X as XIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,20 +18,22 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useCerebro } from "../CerebroContext";
-import { Empty } from "../TaskComponents";
+import { Empty, TaskList } from "../TaskComponents";
+import { NoteEditorDialog } from "../ApunteNoteDialog";
 import {
   Project, ProjectStatus, ProjectStage, PROJECT_STAGES, PROJECT_KANBAN_STATUSES,
-  PROJECT_STATUS_LABEL, PROJECT_CAT_PALETTE,
+  PROJECT_STATUS_LABEL, PROJECT_CAT_PALETTE, Objetivo, WEEKDAY_FULL, RetroResult, RETRO_RESULT_LABEL,
 } from "../types";
 
 /* ============================================================
    Proyectos: kanban superior (siguiente / en curso / finalizado)
    + Inbox de ideas debajo, con drag-and-drop (@dnd-kit) entre
    ambos; tarjeta con vista previa editable; al abrir un proyecto,
-   un pop-up grande con descripción, actualizaciones ("commits"),
-   kanban interno de tareas y archivos/referencias vinculados.
+   un pop-up grande por pestañas: resumen, tareas, objetivos,
+   notas y referencias, presupuesto, tiempo dedicado y retrospectiva.
 ============================================================ */
 
 function catColor(hex?: string) {
@@ -45,7 +48,7 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: (id: strin
 
   const cat = project.categoryId ? projectCategories.find(c => c.id === project.categoryId) : undefined;
   const tasks = projectTasks(project.id);
-  const done = tasks.filter(t => t.stage === "done").length;
+  const done = tasks.filter(t => t.done).length;
 
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
@@ -220,9 +223,10 @@ function ManageProjectCategoriesDialog({ open, onOpenChange }: { open: boolean; 
   );
 }
 
-/* ---------- Kanban interno de tareas de un proyecto (arrastrar y soltar entre columnas) ---------- */
-function TaskCardMini({ task, onOpen, onDelete }: { task: { id: string; title: string }; onOpen: () => void; onDelete: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `task:${task.id}` });
+/* ---------- Kanban de Objetivos (arrastrar y soltar entre columnas) ---------- */
+function ObjetivoCardMini({ objetivo, onDelete }: { objetivo: Objetivo; onDelete: () => void }) {
+  const { updateObjetivo } = useCerebro();
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `obj:${objetivo.id}` });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
   return (
     <div
@@ -230,14 +234,17 @@ function TaskCardMini({ task, onOpen, onDelete }: { task: { id: string; title: s
       style={style}
       {...listeners}
       {...attributes}
-      onClick={onOpen}
       className={cn(
         "group cursor-grab touch-none rounded-lg border bg-card/70 p-2 text-xs transition active:cursor-grabbing",
         isDragging && "z-50 opacity-60 shadow-lg",
       )}
     >
       <div className="flex items-start gap-1">
-        <p className="min-w-0 flex-1 truncate font-medium" title={task.title}>{task.title}</p>
+        <Input
+          defaultValue={objetivo.title}
+          onBlur={(e) => e.target.value.trim() && e.target.value !== objetivo.title && updateObjetivo(objetivo.id, { title: e.target.value.trim() })}
+          className="h-6 flex-1 border-none bg-transparent px-0 text-xs font-medium shadow-none focus-visible:ring-0"
+        />
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
           className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500"
@@ -265,44 +272,419 @@ function StageColumn({ stageKey, label, count, children }: { stageKey: ProjectSt
   );
 }
 
-/* ---------- Pop-up de proyecto abierto (kanban interno + updates + archivos) ---------- */
-function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
-  const {
-    projects, updateProject, projectCategories,
-    projectTasks, moveTaskStage, addTask, openTaskDialog, delTask,
-    projectUpdatesFor, addProjectUpdate, delProjectUpdate,
-    projectNotes, notes, updateNote,
-  } = useCerebro();
-  const project = projects.find(p => p.id === projectId);
+/* ---------- Pestaña: Resumen (fechas + cuenta atrás + actualizaciones) ---------- */
+function ResumenTab({ project }: { project: Project }) {
+  const { updateProject, projectUpdatesFor, addProjectUpdate, delProjectUpdate } = useCerebro();
   const [newUpdate, setNewUpdate] = useState("");
-  const [newCardTitle, setNewCardTitle] = useState<Record<ProjectStage, string>>({ todo: "", doing: "", blocked: "", done: "" });
-  const [linkNoteId, setLinkNoteId] = useState<string>("__none");
-
-  if (!project) return null;
-
-  const tasks = projectTasks(project.id);
   const updates = projectUpdatesFor(project.id);
-  const linkedNotes = projectNotes(project.id);
-  const unlinkedNotes = notes.filter(n => !n.projectId);
 
-  const addCard = (stage: ProjectStage) => {
-    const title = newCardTitle[stage].trim();
-    if (!title) return;
-    addTask({ title, projectId: project.id, stage, category: "Otros", priority: "med" });
-    setNewCardTitle(s => ({ ...s, [stage]: "" }));
-  };
+  const countdown = project.dueDate ? differenceInCalendarDays(new Date(project.dueDate), new Date()) : null;
 
-  const taskDndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const onTaskDragEnd = (e: DragEndEvent) => {
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+      <div className="min-w-0 space-y-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Descripción / objetivo principal</label>
+          <Textarea
+            value={project.description ?? ""}
+            onChange={(e) => updateProject(project.id, { description: e.target.value })}
+            rows={4}
+            placeholder="¿Cuál es el objetivo principal de este proyecto?"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Fecha de inicio</label>
+            <Input
+              type="date"
+              value={project.startDate ? project.startDate.slice(0, 10) : ""}
+              onChange={(e) => updateProject(project.id, { startDate: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Fecha final</label>
+            <Input
+              type="date"
+              value={project.dueDate ? project.dueDate.slice(0, 10) : ""}
+              onChange={(e) => updateProject(project.id, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+            />
+          </div>
+        </div>
+        {countdown !== null && (
+          <div className={cn(
+            "flex items-center gap-2 rounded-lg border p-2.5 text-sm",
+            countdown < 0 ? "border-rose-500/40 bg-rose-500/5 text-rose-500" : "border-primary/30 bg-primary/5 text-primary",
+          )}>
+            <Hourglass className="h-4 w-4 shrink-0" />
+            {countdown > 0 ? <span>Quedan <strong>{countdown}</strong> día{countdown === 1 ? "" : "s"}.</span>
+              : countdown === 0 ? <span>¡La fecha final es <strong>hoy</strong>!</span>
+              : <span>La fecha final pasó hace <strong>{Math.abs(countdown)}</strong> día{Math.abs(countdown) === 1 ? "" : "s"}.</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 space-y-2">
+        <div className="mb-2 flex items-center gap-2">
+          <MessageSquarePlus className="h-4 w-4 text-primary" />
+          <p className="text-sm font-semibold">Actualizaciones</p>
+        </div>
+        <div className="flex gap-2">
+          <Textarea
+            value={newUpdate}
+            onChange={(e) => setNewUpdate(e.target.value)}
+            placeholder="Añade una actualización (commit)…"
+            rows={2}
+            className="text-xs"
+          />
+          <Button
+            size="sm"
+            className="h-auto shrink-0"
+            disabled={!newUpdate.trim()}
+            onClick={() => { addProjectUpdate(project.id, newUpdate.trim()); setNewUpdate(""); }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <div className="mt-3 space-y-2">
+          {updates.length === 0 ? <Empty msg="Sin actualizaciones todavía." /> : updates.map(u => (
+            <div key={u.id} className="group flex items-start gap-2 rounded-lg border bg-card/60 p-2 text-xs">
+              <div className="min-w-0 flex-1">
+                <p className="whitespace-pre-wrap break-words">{u.text}</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">{format(new Date(u.createdAt), "d MMM yyyy · HH:mm", { locale: es })}</p>
+              </div>
+              <button onClick={() => delProjectUpdate(u.id)} className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pestaña: Tareas (pendientes / completadas, sin kanban) ---------- */
+function TareasTab({ project }: { project: Project }) {
+  const { projectTasks, toggleTask, delTask, updateTask, openTaskDialog } = useCerebro();
+  const tasks = projectTasks(project.id);
+  const pending = tasks.filter(t => !t.done);
+  const completed = tasks.filter(t => t.done);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" onClick={() => openTaskDialog({ defaultProjectId: project.id })}>
+          <Plus className="h-4 w-4" /> Nueva tarea
+        </Button>
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pendientes · {pending.length}</p>
+        {pending.length === 0 ? <Empty msg="Sin tareas pendientes." /> : (
+          <TaskList tasks={pending} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} columns={2} />
+        )}
+      </div>
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Completadas · {completed.length}</p>
+        {completed.length === 0 ? <Empty msg="Todavía no se ha completado ninguna." /> : (
+          <TaskList tasks={completed} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} columns={2} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pestaña: Objetivos (kanban interno, antes era de tareas) ---------- */
+function ObjetivosTab({ project }: { project: Project }) {
+  const { objetivosFor, addObjetivo, delObjetivo, moveObjetivoStage } = useCerebro();
+  const objetivos = objetivosFor(project.id);
+  const [newTitle, setNewTitle] = useState<Record<ProjectStage, string>>({ todo: "", doing: "", blocked: "", done: "" });
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const onDragEnd = (e: DragEndEvent) => {
     const { active, over } = e;
     if (!over) return;
     const activeId = String(active.id);
     const overId = String(over.id);
-    if (!activeId.startsWith("task:") || !overId.startsWith("stage:")) return;
-    const taskId = activeId.slice("task:".length);
-    const stage = overId.slice("stage:".length) as ProjectStage;
-    moveTaskStage(taskId, stage);
+    if (!activeId.startsWith("obj:") || !overId.startsWith("stage:")) return;
+    moveObjetivoStage(activeId.slice("obj:".length), overId.slice("stage:".length) as ProjectStage);
   };
+
+  const addCard = (stage: ProjectStage) => {
+    const title = newTitle[stage].trim();
+    if (!title) return;
+    addObjetivo(project.id, title, stage);
+    setNewTitle(s => ({ ...s, [stage]: "" }));
+  };
+
+  return (
+    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {PROJECT_STAGES.map(({ key, label }) => (
+          <StageColumn key={key} stageKey={key} label={label} count={objetivos.filter(o => o.stage === key).length}>
+            {objetivos.filter(o => o.stage === key).map(o => (
+              <ObjetivoCardMini key={o.id} objetivo={o} onDelete={() => delObjetivo(o.id)} />
+            ))}
+            <Input
+              value={newTitle[key]}
+              onChange={(e) => setNewTitle(s => ({ ...s, [key]: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && addCard(key)}
+              placeholder="+ objetivo…"
+              className="h-7 text-[11px]"
+            />
+          </StageColumn>
+        ))}
+      </div>
+    </DndContext>
+  );
+}
+
+/* ---------- Pestaña: Notas y referencias (carpeta del proyecto en Archivo) ---------- */
+function NotasTab({ project }: { project: Project }) {
+  const { projectFolder, apunteDocs, delApunteDoc } = useCerebro();
+  const folder = projectFolder(project.id);
+  const docs = useMemo(() => apunteDocs.filter(d => folder && d.folderId === folder.id), [apunteDocs, folder]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" onClick={() => { setEditingId(null); setDialogOpen(true); }}>
+          <Plus className="h-4 w-4" /> Nueva nota
+        </Button>
+      </div>
+      {docs.length === 0 ? <Empty msg="Sin notas ni referencias todavía." /> : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {docs.map(d => (
+            <div key={d.id} className="group rounded-xl border bg-card/60 p-3 text-left shadow-sm transition hover:border-primary/40">
+              <button className="w-full text-left" onClick={() => { setEditingId(d.id); setDialogOpen(true); }}>
+                <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
+                  <FileText className="h-4 w-4 shrink-0 text-primary" /> {d.title}
+                </p>
+                {d.content && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{d.content}</p>}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {d.tags.map(t => <Badge key={t} variant="outline" className="h-4.5 text-[10px]">{t}</Badge>)}
+                </div>
+              </button>
+              <button
+                onClick={() => delApunteDoc(d.id)}
+                className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500"
+              >
+                <Trash2 className="h-3 w-3" /> Eliminar
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <NoteEditorDialog open={dialogOpen} onOpenChange={setDialogOpen} folderId={folder?.id ?? null} editingId={editingId} />
+    </div>
+  );
+}
+
+/* ---------- Pestaña: Presupuesto ---------- */
+function PresupuestoTab({ project }: { project: Project }) {
+  const { updateProject, expensesFor, addExpense, delExpense, projectBudgetRemaining } = useCerebro();
+  const expenses = expensesFor(project.id);
+  const remaining = projectBudgetRemaining(project.id);
+  const [title, setTitle] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const addRow = () => {
+    const n = parseFloat(amount.replace(",", "."));
+    if (!title.trim() || !Number.isFinite(n)) return;
+    addExpense(project.id, { title: title.trim(), amount: n });
+    setTitle("");
+    setAmount("");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Presupuesto total (€)</label>
+          <Input
+            type="number"
+            value={project.budgetTotal ?? ""}
+            onChange={(e) => updateProject(project.id, { budgetTotal: e.target.value ? parseFloat(e.target.value) : undefined })}
+          />
+        </div>
+        <div className="rounded-lg border bg-card/60 p-2.5">
+          <p className="text-[10px] uppercase text-muted-foreground">Gastado</p>
+          <p className="text-sm font-semibold">{expenses.reduce((s, e) => s + e.amount, 0).toFixed(2)} €</p>
+        </div>
+        <div className={cn("rounded-lg border p-2.5", remaining < 0 ? "border-rose-500/40 bg-rose-500/5" : "bg-card/60")}>
+          <p className="text-[10px] uppercase text-muted-foreground">Queda</p>
+          <p className={cn("text-sm font-semibold", remaining < 0 && "text-rose-500")}>{remaining.toFixed(2)} €</p>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Concepto del gasto…" className="flex-1" />
+        <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Importe" className="w-28" />
+        <Button onClick={addRow} disabled={!title.trim() || !amount.trim()}><Plus className="h-4 w-4" /></Button>
+      </div>
+
+      <div className="space-y-1.5">
+        {expenses.length === 0 ? <Empty msg="Sin gastos todavía." /> : expenses.map(e => (
+          <div key={e.id} className="group flex items-center gap-2 rounded-lg border bg-card/60 p-2 text-xs">
+            <Wallet className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{e.title}</span>
+            <span className="font-medium">{e.amount.toFixed(2)} €</span>
+            <span className="text-[10px] text-muted-foreground">{format(new Date(e.date), "d MMM", { locale: es })}</span>
+            <button onClick={() => delExpense(e.id)} className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pestaña: Acumulador de tiempo dedicado ---------- */
+function TiempoTab({ project }: { project: Project }) {
+  const { updateProjectTimeSchedule, pendingTimeConfirmations, confirmTimeSession, declineTimeSession, projectAccumulatedMinutes } = useCerebro();
+  const schedule = project.timeSchedule ?? [];
+  const pending = pendingTimeConfirmations(project.id);
+  const totalMinutes = projectAccumulatedMinutes(project.id);
+
+  const minutesFor = (weekday: number) => schedule.find(s => s.weekday === weekday)?.minutes ?? 0;
+  const setDay = (weekday: number, minutes: number | null) => {
+    const next = schedule.filter(s => s.weekday !== weekday);
+    if (minutes !== null && minutes > 0) next.push({ weekday, minutes });
+    updateProjectTimeSchedule(project.id, next);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border bg-card/60 p-4 text-center">
+        <p className="text-[11px] uppercase text-muted-foreground">Tiempo acumulado</p>
+        <p className="text-2xl font-bold text-primary">{Math.floor(totalMinutes / 60)}h {totalMinutes % 60}min</p>
+      </div>
+
+      {pending.length > 0 && (
+        <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="text-xs font-semibold text-amber-600">¿Hiciste estas sesiones programadas?</p>
+          {pending.map(p => (
+            <div key={p.date} className="flex items-center justify-between gap-2 rounded-lg border bg-background/60 p-2 text-xs">
+              <span>{format(new Date(p.date), "EEEE d MMM", { locale: es })} · {p.minutes} min</span>
+              <div className="flex gap-1.5">
+                <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={() => confirmTimeSession(project.id, p.date, p.minutes)}>
+                  <Check className="h-3 w-3" /> Sí
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 gap-1 text-[11px]" onClick={() => declineTimeSession(project.id, p.date)}>
+                  <XIcon className="h-3 w-3" /> No
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Horario semanal</p>
+        <div className="space-y-1.5">
+          {WEEKDAY_FULL.map((label, weekday) => {
+            const m = minutesFor(weekday);
+            const active = m > 0;
+            return (
+              <div key={weekday} className="flex items-center gap-2">
+                <button
+                  onClick={() => setDay(weekday, active ? null : 30)}
+                  className={cn(
+                    "w-28 rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium transition-colors",
+                    active ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+                {active && (
+                  <>
+                    <Input
+                      type="number"
+                      value={m}
+                      onChange={(e) => setDay(weekday, parseInt(e.target.value, 10) || 0)}
+                      className="h-8 w-20 text-xs"
+                    />
+                    <span className="text-xs text-muted-foreground">min</span>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pestaña: Diario de retrospectiva ---------- */
+function RetrospectivaTab({ project }: { project: Project }) {
+  const { retroEntriesFor, addRetroEntry, delRetroEntry } = useCerebro();
+  const entries = retroEntriesFor(project.id);
+  const [wentWell, setWentWell] = useState("");
+  const [toImprove, setToImprove] = useState("");
+  const [result, setResult] = useState<RetroResult>("pending");
+
+  const submit = () => {
+    if (!wentWell.trim() && !toImprove.trim()) return;
+    addRetroEntry(project.id, { wentWell, toImprove, result });
+    setWentWell("");
+    setToImprove("");
+    setResult("pending");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2 rounded-xl border bg-card/60 p-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">¿Qué salió bien?</label>
+          <Textarea value={wentWell} onChange={(e) => setWentWell(e.target.value)} rows={2} placeholder="«Mantuve el hábito por 3 semanas seguidas»" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">¿Qué se puede mejorar?</label>
+          <Textarea value={toImprove} onChange={(e) => setToImprove(e.target.value)} rows={2} placeholder="«Los fines de semana me cuesta más sentarme»" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={result} onValueChange={(v) => setResult(v as RetroResult)}>
+            <SelectTrigger className="h-8 w-48 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="achieved">{RETRO_RESULT_LABEL.achieved}</SelectItem>
+              <SelectItem value="pending">{RETRO_RESULT_LABEL.pending}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" onClick={submit} disabled={!wentWell.trim() && !toImprove.trim()}><Plus className="h-3.5 w-3.5" /> Añadir entrada</Button>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {entries.length === 0 ? <Empty msg="Sin entradas todavía." /> : entries.map(e => (
+          <div key={e.id} className="group rounded-xl border bg-card/60 p-3 text-xs">
+            <div className="mb-1 flex items-center justify-between">
+              <Badge variant="outline" className={cn("text-[10px]", e.result === "achieved" ? "border-emerald-500/40 text-emerald-500" : "border-amber-500/40 text-amber-500")}>
+                {RETRO_RESULT_LABEL[e.result]}
+              </Badge>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground">{format(new Date(e.createdAt), "d MMM yyyy", { locale: es })}</span>
+                <button onClick={() => delRetroEntry(e.id)} className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500">
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+            {e.wentWell && <p><span className="font-semibold">Bien:</span> {e.wentWell}</p>}
+            {e.toImprove && <p className="mt-1"><span className="font-semibold">Mejorar:</span> {e.toImprove}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pop-up de proyecto abierto (por pestañas) ---------- */
+function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const { projects, updateProject } = useCerebro();
+  const project = projects.find(p => p.id === projectId);
+  if (!project) return null;
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -319,121 +701,27 @@ function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () =
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
-            {/* IZQUIERDA: descripción + kanban de tareas */}
-            <div className="min-w-0 space-y-5">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Descripción</label>
-                <Textarea
-                  value={project.description ?? ""}
-                  onChange={(e) => updateProject(project.id, { description: e.target.value })}
-                  rows={3}
-                  placeholder="Descripción completa del proyecto…"
-                />
-              </div>
-
-              <div>
-                <div className="mb-2 flex items-center gap-2">
-                  <ListTodo className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold">Tareas del proyecto</p>
-                </div>
-                <DndContext sensors={taskDndSensors} onDragEnd={onTaskDragEnd}>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  {PROJECT_STAGES.map(({ key, label }) => (
-                    <StageColumn key={key} stageKey={key} label={label} count={tasks.filter(t => t.stage === key).length}>
-                      {tasks.filter(t => t.stage === key).map(t => (
-                        <TaskCardMini key={t.id} task={t} onOpen={() => openTaskDialog({ editId: t.id })} onDelete={() => delTask(t.id)} />
-                      ))}
-                      <div className="flex gap-1">
-                        <Input
-                          value={newCardTitle[key]}
-                          onChange={(e) => setNewCardTitle(s => ({ ...s, [key]: e.target.value }))}
-                          onKeyDown={(e) => e.key === "Enter" && addCard(key)}
-                          placeholder="+ tarjeta…"
-                          className="h-7 text-[11px]"
-                        />
-                      </div>
-                    </StageColumn>
-                  ))}
-                </div>
-                </DndContext>
-              </div>
+          <Tabs defaultValue="resumen" className="w-full">
+            <div className="mb-4 -mx-1 overflow-x-auto px-1">
+              <TabsList className="inline-flex h-auto w-max gap-1">
+                <TabsTrigger value="resumen" className="whitespace-nowrap"><CalendarIcon className="mr-1.5 h-3.5 w-3.5" />Resumen</TabsTrigger>
+                <TabsTrigger value="tareas" className="whitespace-nowrap"><ListTodo className="mr-1.5 h-3.5 w-3.5" />Tareas</TabsTrigger>
+                <TabsTrigger value="objetivos" className="whitespace-nowrap"><Target className="mr-1.5 h-3.5 w-3.5" />Objetivos</TabsTrigger>
+                <TabsTrigger value="notas" className="whitespace-nowrap"><FileText className="mr-1.5 h-3.5 w-3.5" />Notas</TabsTrigger>
+                <TabsTrigger value="presupuesto" className="whitespace-nowrap"><Wallet className="mr-1.5 h-3.5 w-3.5" />Presupuesto</TabsTrigger>
+                <TabsTrigger value="tiempo" className="whitespace-nowrap"><Clock className="mr-1.5 h-3.5 w-3.5" />Tiempo</TabsTrigger>
+                <TabsTrigger value="retro" className="whitespace-nowrap"><BookOpen className="mr-1.5 h-3.5 w-3.5" />Retrospectiva</TabsTrigger>
+              </TabsList>
             </div>
 
-            {/* DERECHA: actualizaciones + archivos/referencias */}
-            <div className="min-w-0 space-y-5">
-              <div>
-                <div className="mb-2 flex items-center gap-2">
-                  <MessageSquarePlus className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold">Actualizaciones</p>
-                </div>
-                <div className="flex gap-2">
-                  <Textarea
-                    value={newUpdate}
-                    onChange={(e) => setNewUpdate(e.target.value)}
-                    placeholder="Añade una actualización (commit)…"
-                    rows={2}
-                    className="text-xs"
-                  />
-                  <Button
-                    size="sm"
-                    className="h-auto shrink-0"
-                    disabled={!newUpdate.trim()}
-                    onClick={() => { addProjectUpdate(project.id, newUpdate.trim()); setNewUpdate(""); }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {updates.length === 0 ? <Empty msg="Sin actualizaciones todavía." /> : updates.map(u => (
-                    <div key={u.id} className="group flex items-start gap-2 rounded-lg border bg-card/60 p-2 text-xs">
-                      <div className="min-w-0 flex-1">
-                        <p className="whitespace-pre-wrap break-words">{u.text}</p>
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">{format(new Date(u.createdAt), "d MMM yyyy · HH:mm", { locale: es })}</p>
-                      </div>
-                      <button onClick={() => delProjectUpdate(u.id)} className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold">Archivos y referencias</p>
-                </div>
-                <div className="flex gap-2">
-                  <Select value={linkNoteId} onValueChange={setLinkNoteId}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Vincular nota o referencia…" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none">Elegir…</SelectItem>
-                      {unlinkedNotes.map(n => <SelectItem key={n.id} value={n.id}>{n.title}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    size="sm"
-                    disabled={linkNoteId === "__none"}
-                    onClick={() => { if (linkNoteId !== "__none") { updateNote(linkNoteId, { projectId: project.id }); setLinkNoteId("__none"); } }}
-                  >
-                    <Link2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <div className="mt-3 space-y-1.5">
-                  {linkedNotes.length === 0 ? <Empty msg="Sin archivos vinculados." /> : linkedNotes.map(n => (
-                    <div key={n.id} className="flex items-center gap-2 rounded-lg border bg-card/60 p-2 text-xs">
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate">{n.title}</span>
-                      <button onClick={() => updateNote(n.id, { projectId: undefined })} className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-rose-500" title="Desvincular">
-                        <Unlink className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+            <TabsContent value="resumen" className="mt-0"><ResumenTab project={project} /></TabsContent>
+            <TabsContent value="tareas" className="mt-0"><TareasTab project={project} /></TabsContent>
+            <TabsContent value="objetivos" className="mt-0"><ObjetivosTab project={project} /></TabsContent>
+            <TabsContent value="notas" className="mt-0"><NotasTab project={project} /></TabsContent>
+            <TabsContent value="presupuesto" className="mt-0"><PresupuestoTab project={project} /></TabsContent>
+            <TabsContent value="tiempo" className="mt-0"><TiempoTab project={project} /></TabsContent>
+            <TabsContent value="retro" className="mt-0"><RetrospectivaTab project={project} /></TabsContent>
+          </Tabs>
         </div>
       </DialogContent>
     </Dialog>

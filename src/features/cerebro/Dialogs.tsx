@@ -63,10 +63,10 @@ export function TaskDialog() {
         setDayPart(state.defaultDayPart ?? "morning");
         setDate(state.defaultDate ? new Date(state.defaultDate) : new Date());
         setRecurrence(undefined);
-        setProjectId(undefined);
+        setProjectId(state.defaultProjectId);
       }
     }
-  }, [state.open, state.defaultTitle, state.defaultDate, state.defaultDayPart, editing]);
+  }, [state.open, state.defaultTitle, state.defaultDate, state.defaultDayPart, state.defaultProjectId, editing]);
 
   const onPhotoFile = async (file?: File) => {
     if (!file) return;
