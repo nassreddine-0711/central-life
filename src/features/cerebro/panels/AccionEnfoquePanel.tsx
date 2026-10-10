@@ -115,7 +115,7 @@ function FocoPanel() {
                   onToggle={toggleTask}
                   onDelete={delTask}
                   onUpdate={updateTask}
-                  onNewTask={() => openTaskDialog()}
+                  onNewTask={(d, dayPart) => openTaskDialog({ defaultDate: d.toISOString(), defaultDayPart: dayPart })}
                 />
               </TabsContent>
 

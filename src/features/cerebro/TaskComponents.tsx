@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Task, CAT_COLORS, PRIO_COLORS, describeRecurrence, COMPLEXITY_LABEL } from "./types";
+import { Task, CAT_COLORS, PRIO_COLORS, describeRecurrence, COMPLEXITY_LABEL, DayPart, DAY_PART_LABEL, DAY_PART_ORDER } from "./types";
 import { useKnowledge } from "@/features/knowledge/KnowledgeContext";
 import { useCerebro } from "./CerebroContext";
 
@@ -284,7 +284,7 @@ function LegendItem({ color, label }: { color: string; label: string }) {
   );
 }
 
-export function MonthView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNewTask }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; onNewTask?: () => void; }) {
+export function MonthView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNewTask }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; onNewTask?: (date: Date, dayPart: DayPart) => void; }) {
   const [month, setMonth] = useState<Date>(new Date());
   const [selected, setSelected] = useState<Date>(new Date());
 
@@ -316,6 +316,15 @@ export function MonthView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNe
   };
 
   const dayList = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), selected));
+  const dayListByPart = useMemo(() => {
+    const map = new Map<DayPart, Task[]>();
+    DAY_PART_ORDER.forEach(dp => map.set(dp, []));
+    dayList.forEach(t => {
+      const dp = t.dayPart ?? "morning";
+      (map.get(dp) ?? map.get("morning")!).push(t);
+    });
+    return map;
+  }, [dayList]);
   const weekDays = ["lu", "ma", "mi", "ju", "vi", "sá", "do"];
 
   return (
@@ -382,12 +391,35 @@ export function MonthView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNe
       </div>
       <Section title={format(selected, "EEEE d MMMM", { locale: es })} action={
         onNewTask && (
-          <Button variant="outline" size="sm" onClick={onNewTask}>
+          <Button variant="outline" size="sm" onClick={() => onNewTask(selected, "morning")}>
             <Plus className="h-4 w-4" /> Nueva tarea
           </Button>
         )
       }>
-        {dayList.length === 0 ? <Empty msg="Sin tareas en este día." /> : <TaskList tasks={dayList} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />}
+        {dayList.length === 0 ? <Empty msg="Sin tareas en este día." /> : (
+          <div className="space-y-4">
+            {DAY_PART_ORDER.map(dp => {
+              const items = dayListByPart.get(dp) ?? [];
+              return (
+                <div key={dp}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{DAY_PART_LABEL[dp]} · {items.length}</h4>
+                    {onNewTask && (
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onNewTask(selected, dp)} title={`Nueva tarea · ${DAY_PART_LABEL[dp]}`}>
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                  {items.length === 0 ? (
+                    <p className="py-1 text-xs text-muted-foreground/70">Sin tareas.</p>
+                  ) : (
+                    <TaskList tasks={items} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Section>
     </div>
   );

@@ -16,7 +16,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
-  Category, Priority, Complexity, CATEGORIES, DEFAULT_NOTE_CAT, uid,
+  Category, Priority, Complexity, DayPart, DAY_PART_LABEL, DAY_PART_ORDER, CATEGORIES, DEFAULT_NOTE_CAT, uid,
   Recurrence, RecurrenceFreq, WEEKDAY_LABELS, WEEKDAY_FULL, describeRecurrence,
   ProjectCategory, PROJECT_CAT_PALETTE,
 } from "./types";
@@ -35,6 +35,7 @@ export function TaskDialog() {
   const [category, setCategory] = useState<Category>("Personal");
   const [priority, setPriority] = useState<Priority>("med");
   const [complexity, setComplexity] = useState<Complexity>("quick");
+  const [dayPart, setDayPart] = useState<DayPart>("morning");
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [recurrence, setRecurrence] = useState<Recurrence | undefined>(undefined);
   const [projectId, setProjectId] = useState<string | undefined>(undefined);
@@ -48,6 +49,7 @@ export function TaskDialog() {
         setCategory(editing.category);
         setPriority(editing.priority);
         setComplexity(editing.complexity ?? "quick");
+        setDayPart(editing.dayPart ?? "morning");
         setDate(editing.date ? new Date(editing.date) : undefined);
         setRecurrence(editing.recurrence);
         setProjectId(editing.projectId);
@@ -58,12 +60,13 @@ export function TaskDialog() {
         setCategory("Personal");
         setPriority("med");
         setComplexity("quick");
+        setDayPart(state.defaultDayPart ?? "morning");
         setDate(state.defaultDate ? new Date(state.defaultDate) : new Date());
         setRecurrence(undefined);
         setProjectId(undefined);
       }
     }
-  }, [state.open, state.defaultTitle, state.defaultDate, editing]);
+  }, [state.open, state.defaultTitle, state.defaultDate, state.defaultDayPart, editing]);
 
   const onPhotoFile = async (file?: File) => {
     if (!file) return;
@@ -83,7 +86,7 @@ export function TaskDialog() {
         title: title.trim(),
         description: description.trim() || undefined,
         photo: photo || undefined,
-        category, priority, complexity,
+        category, priority, complexity, dayPart,
         date: date?.toISOString(),
         recurrence,
         projectId,
@@ -100,7 +103,7 @@ export function TaskDialog() {
         title: title.trim(),
         description: description.trim() || undefined,
         photo: photo || undefined,
-        category, priority, complexity,
+        category, priority, complexity, dayPart,
         date: date?.toISOString(),
         inbox: false,
         linkedNoteId: state.linkedNoteId,
@@ -246,6 +249,28 @@ export function TaskDialog() {
               <Calendar mode="single" selected={date} onSelect={setDate} locale={es} className="p-3 pointer-events-auto" />
             </PopoverContent>
           </Popover>
+
+          {/* Franja horaria del día */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Franja horaria</label>
+            <div className="grid grid-cols-4 gap-2">
+              {DAY_PART_ORDER.map(dp => (
+                <button
+                  key={dp}
+                  type="button"
+                  onClick={() => setDayPart(dp)}
+                  className={cn(
+                    "rounded-lg border px-2 py-2 text-center text-xs font-medium transition-all",
+                    dayPart === dp
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-background text-muted-foreground hover:border-primary/40"
+                  )}
+                >
+                  {DAY_PART_LABEL[dp]}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <RecurrencePicker value={recurrence} onChange={setRecurrence} />
 

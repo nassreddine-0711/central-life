@@ -26,6 +26,16 @@ export interface Recurrence {
   weekdays?: number[];
 }
 
+// NEW: franja horaria del día en la que se agenda la tarea (vista mensual)
+export type DayPart = "morning" | "midday" | "afternoon" | "evening";
+export const DAY_PART_LABEL: Record<DayPart, string> = {
+  morning: "Mañana",
+  midday: "Mediodía",
+  afternoon: "Tarde",
+  evening: "Noche",
+};
+export const DAY_PART_ORDER: DayPart[] = ["morning", "midday", "afternoon", "evening"];
+
 export interface Task {
   id: string;
   title: string;
@@ -34,6 +44,7 @@ export interface Task {
   category: Category;
   priority: Priority;
   complexity?: Complexity;   // NEW
+  dayPart?: DayPart;         // NEW: mañana/mediodía/tarde/noche (por defecto "morning")
   date?: string;
   done: boolean;
   completedAt?: string;

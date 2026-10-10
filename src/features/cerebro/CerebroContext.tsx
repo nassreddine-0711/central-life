@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { subMonths, parseISO } from "date-fns";
 import {
-  Task, Note, LinkedRef, Category, Priority, Project, ProjectStage, ProjectStatus,
+  Task, Note, LinkedRef, Category, Priority, DayPart, Project, ProjectStage, ProjectStatus,
   ProjectCategory, ProjectUpdate,
   ApunteFolder, ApunteDoc, ApunteAudio,
   TASKS_KEY, NOTES_KEY, NOTE_CATS_KEY, PROJECTS_KEY, PROJECT_CATS_KEY, PROJECT_UPDATES_KEY,
@@ -81,7 +81,7 @@ interface CerebroCtx {
 
   // Cross-section UI hooks
   openNoteSheet: (opts?: { linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }) => void;
-  openTaskDialog: (opts?: { linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; editId?: string }) => void;
+  openTaskDialog: (opts?: { linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; editId?: string }) => void;
   openQuickCapture: () => void;
   createTaskFromNote: (note: Note) => void;
 
@@ -93,7 +93,7 @@ interface CerebroCtx {
   // internal modal state (consumed by mounted dialogs)
   _noteSheetState: { open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string };
   _setNoteSheetOpen: (open: boolean) => void;
-  _taskDialogState: { open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; editId?: string };
+  _taskDialogState: { open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; editId?: string };
   _setTaskDialogOpen: (open: boolean) => void;
   _quickOpen: boolean;
   _setQuickOpen: (open: boolean) => void;
@@ -119,7 +119,7 @@ function filterOldCompletedTasks(tasks: Task[]): Task[] {
 export function CerebroProvider({ children }: { children: ReactNode }) {
   const { user, session } = useAuth();
   const [googleConnected, setGoogleConnected] = useState(false);
-  const [tasks, setTasks] = useState<Task[]>(() => filterOldCompletedTasks(load(TASKS_KEY, [])));
+  const [tasks, setTasks] = useState<Task[]>(() => filterOldCompletedTasks(load<Task[]>(TASKS_KEY, [])).map(t => ({ ...t, dayPart: t.dayPart ?? "morning" })));
   const [notes, setNotes] = useState<Note[]>(() =>
     load<Note[]>(NOTES_KEY, []).map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))
   );
@@ -138,7 +138,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
 
   const [noteSheetState, setNoteSheetState] = useState<{ open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }>({ open: false });
-  const [taskDialogState, setTaskDialogState] = useState<{ open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; editId?: string }>({ open: false });
+  const [taskDialogState, setTaskDialogState] = useState<{ open: boolean; linkedNoteId?: string; linkedMilestoneId?: string; defaultTitle?: string; defaultDate?: string; defaultDayPart?: DayPart; editId?: string }>({ open: false });
   const [quickOpen, setQuickOpen] = useState(false);
 
   const saveLocal = useCallback((key: string, value: unknown, label: string) => {
@@ -162,7 +162,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useEffect(() => { saveLocal(APUNTE_DOCS_KEY, apunteDocs, "los apuntes"); }, [apunteDocs, saveLocal]);
   useEffect(() => { saveLocal(APUNTE_AUDIOS_KEY, apunteAudios, "los audios de apuntes"); }, [apunteAudios, saveLocal]);
 
-  const setTasksCb = useCallback((v: Task[]) => setTasks(filterOldCompletedTasks(v)), []);
+  const setTasksCb = useCallback((v: Task[]) => setTasks(filterOldCompletedTasks(v).map(t => ({ ...t, dayPart: t.dayPart ?? "morning" }))), []);
   const setNotesCb = useCallback((v: Note[]) => setNotes(v.map(n => ({ ...n, category: n.category || DEFAULT_NOTE_CAT }))), []);
   const setNoteCatsCb = useCallback((v: string[]) => setNoteCats(v), []);
   const setProjectsCb = useCallback((v: Project[]) => setProjects(v), []);
@@ -190,6 +190,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       category: partial.category ?? "Otros",
       priority: partial.priority ?? "med",
       date: partial.date,
+      dayPart: partial.dayPart ?? "morning",
       done: false,
       inbox: partial.inbox ?? (partial.projectId ? false : true),
       createdAt: new Date().toISOString(),
@@ -289,7 +290,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openTaskDialog: CerebroCtx["openTaskDialog"] = useCallback((opts) => {
-    setTaskDialogState({ open: true, linkedNoteId: opts?.linkedNoteId, linkedMilestoneId: opts?.linkedMilestoneId, defaultTitle: opts?.defaultTitle, defaultDate: opts?.defaultDate, editId: opts?.editId });
+    setTaskDialogState({ open: true, linkedNoteId: opts?.linkedNoteId, linkedMilestoneId: opts?.linkedMilestoneId, defaultTitle: opts?.defaultTitle, defaultDate: opts?.defaultDate, defaultDayPart: opts?.defaultDayPart, editId: opts?.editId });
   }, []);
 
   const openQuickCapture = useCallback(() => setQuickOpen(true), []);
