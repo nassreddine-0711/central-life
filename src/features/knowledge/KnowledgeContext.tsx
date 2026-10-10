@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useMemo } from "react";
 import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 
 export type MilestoneStatus = "completed" | "active" | "planned";
@@ -83,12 +83,22 @@ export function KnowledgeProvider({ children }: { children: ReactNode }) {
   const [books, setBooks] = useState<Book[]>(defaultBooks);
 
   // ── Sync con Supabase ───────────────────────────────────────────────────
-  const knowledgeData: KnowledgePersistedData = { milestones, languages, books };
+  // Memoizado: si se recreara en cada render, la sincronización lo vería como "cambio" y
+  // podía subir los datos de ejemplo (por defecto) encima de tus libros reales.
+  const knowledgeData = useMemo<KnowledgePersistedData>(
+    () => ({ milestones, languages, books }),
+    [milestones, languages, books],
+  );
 
   useSupabaseSync<KnowledgePersistedData>("knowledge", knowledgeData, (loaded) => {
     if (loaded.milestones) setMilestones(loaded.milestones);
     if (loaded.languages)  setLanguages(loaded.languages);
     if (loaded.books)      setBooks(loaded.books);
+  }, {
+    // Los libros/idiomas de ejemplo (b1-b4, l1-l5) nunca deben pisar tus datos reales.
+    isDefault: (v) =>
+      (v.books ?? []).every((b) => /^b[1-4]$/.test(b.id)) &&
+      (v.languages ?? []).every((l) => /^l[1-5]$/.test(l.id)),
   });
 
   const addMilestone: Ctx["addMilestone"] = (m) => setMilestones((p) => [...p, { ...m, id: crypto.randomUUID() }]);

@@ -52,10 +52,17 @@ function mergeData<T>(server: T, local: T): T {
   return local;
 }
 
+export interface SyncOptions<T> {
+  /** Dice si un valor es solo el contenido "de ejemplo"/vacío inicial. Evita que un dato de relleno
+   *  pise (o sea pisado por) los datos reales que existen en otro sitio. */
+  isDefault?: (v: T) => boolean;
+}
+
 export function useSupabaseSync<T>(
   module: string,
   value: T,
-  setValue: (v: T) => void
+  setValue: (v: T) => void,
+  options?: SyncOptions<T>
 ): { ready: boolean } {
   const { user, loading } = useAuth();
   const userId = user?.id;
@@ -66,8 +73,11 @@ export function useSupabaseSync<T>(
   valueRef.current = value;
   const setValueRef = useRef(setValue);
   setValueRef.current = setValue;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const mountValueRef = useRef(value);
+  const mountJsonRef = useRef<string | null>(null);
   const dirtyBeforeLoadRef = useRef(false); // el usuario/la app cambió algo mientras cargaba
   const versionRef = useRef(0);             // cuenta de cambios locales
   const stampRef = useRef<string | null>(null); // updated_at de la última versión del servidor que conocemos
@@ -173,7 +183,7 @@ export function useSupabaseSync<T>(
       if (error) {
         // No inicializamos: mientras no carguemos bien, NO se guarda nada (así no se pisa lo del servidor).
         console.error(`Error loading module ${module} from Supabase:`, error);
-        retryTimeout.current = setTimeout(attempt, RETRY_DELAY_MS);
+        retryTimeout.current = setTimeout(attemptSafe, RETRY_DELAY_MS);
         return;
       }
 
@@ -185,7 +195,9 @@ export function useSupabaseSync<T>(
       if (serverData === null || serverData === undefined) {
         initialized.current = true;
         setReady(true);
-        if (localNewer || (Array.isArray(local) && local.length > 0)) {
+        // El servidor aún no tiene nada de este módulo: se sube lo local (así nace la copia en la nube).
+        const placeholder = optionsRef.current?.isDefault?.(local) ?? false;
+        if (localNewer || (!placeholder && !(Array.isArray(local) && local.length === 0))) {
           versionRef.current += 1;
           writePending(key, true);
           void flushRef.current();
@@ -193,7 +205,11 @@ export function useSupabaseSync<T>(
         return;
       }
 
-      if (localNewer) {
+      // Si lo del servidor es solo contenido de relleno y lo local son datos reales, mandan los reales.
+      const isDef = optionsRef.current?.isDefault;
+      const localBeatsPlaceholder = !!isDef && isDef(serverData) && !isDef(local);
+
+      if (localNewer || localBeatsPlaceholder) {
         // Hay cambios locales sin subir: se unen con el servidor, nunca se descartan.
         const merged = mergeData(serverData, local);
         valueRef.current = merged;
@@ -210,7 +226,16 @@ export function useSupabaseSync<T>(
       }
     };
 
-    void attempt();
+    // Un fallo de red también lanza excepción: reintentamos sin inicializar (no se guarda nada hasta cargar bien).
+    const attemptSafe = async () => {
+      try { await attempt(); } catch (e) {
+        if (cancelled) return;
+        console.error(`Error loading module ${module} from Supabase:`, e);
+        retryTimeout.current = setTimeout(attemptSafe, RETRY_DELAY_MS);
+      }
+    };
+
+    void attemptSafe();
     return () => {
       cancelled = true;
       if (retryTimeout.current) clearTimeout(retryTimeout.current);
@@ -220,7 +245,14 @@ export function useSupabaseSync<T>(
   // Cada cambio: se marca como pendiente y se guarda enseguida.
   useEffect(() => {
     if (value === mountValueRef.current) return;
-    if (!initialized.current) { dirtyBeforeLoadRef.current = true; return; }
+    if (!initialized.current) {
+      // Solo cuenta como "cambio" si cambia el CONTENIDO (no basta con que sea un objeto nuevo).
+      try {
+        if (mountJsonRef.current === null) mountJsonRef.current = JSON.stringify(mountValueRef.current);
+        if (JSON.stringify(value) !== mountJsonRef.current) dirtyBeforeLoadRef.current = true;
+      } catch { dirtyBeforeLoadRef.current = true; }
+      return;
+    }
     versionRef.current += 1;
     if (userId) writePending(pendingKey(userId, module), true);
     if (saveTimeout.current) clearTimeout(saveTimeout.current);

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -125,24 +126,33 @@ function migrateHourlyBlocks(blocks: Record<string, string>): Record<string, str
   return out;
 }
 
+/** true si no hay nada pintado en el horario (solo el horario de relleno inicial). */
+function isEmptySchedule(s: RoutinesState): boolean {
+  return !s.versions?.length || s.versions.every((v) => Object.keys(v.blocks ?? {}).length === 0);
+}
+
+/** Rellena lo que falte y migra versiones antiguas (sirve para lo local y para lo que llega de la nube). */
+function normalizeState(parsed: RoutinesState): RoutinesState {
+  if (!parsed.versions?.length) return defaultState();
+  if (!parsed.versions.find((v) => v.id === parsed.currentId)) {
+    parsed.currentId = parsed.versions[0].id;
+  }
+  parsed.periodBoundaries = { ...DEFAULT_PERIODS, ...parsed.periodBoundaries };
+  if (parsed.showLabelsAlways === undefined) parsed.showLabelsAlways = false;
+  if (parsed.locked === undefined) parsed.locked = false;
+  parsed.visibleRange = { ...DEFAULT_VISIBLE_RANGE, ...parsed.visibleRange };
+  if ((parsed.schemaVersion ?? 1) < 2) {
+    parsed.versions = parsed.versions.map((v) => ({ ...v, blocks: migrateHourlyBlocks(v.blocks) }));
+    parsed.schemaVersion = 2;
+  }
+  return parsed;
+}
+
 function loadState(): RoutinesState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
-    const parsed = JSON.parse(raw) as RoutinesState;
-    if (!parsed.versions?.length) return defaultState();
-    if (!parsed.versions.find((v) => v.id === parsed.currentId)) {
-      parsed.currentId = parsed.versions[0].id;
-    }
-    parsed.periodBoundaries = { ...DEFAULT_PERIODS, ...parsed.periodBoundaries };
-    if (parsed.showLabelsAlways === undefined) parsed.showLabelsAlways = false;
-    if (parsed.locked === undefined) parsed.locked = false;
-    parsed.visibleRange = { ...DEFAULT_VISIBLE_RANGE, ...parsed.visibleRange };
-    if ((parsed.schemaVersion ?? 1) < 2) {
-      parsed.versions = parsed.versions.map((v) => ({ ...v, blocks: migrateHourlyBlocks(v.blocks) }));
-      parsed.schemaVersion = 2;
-    }
-    return parsed;
+    return normalizeState(JSON.parse(raw) as RoutinesState);
   } catch {
     return defaultState();
   }
@@ -153,6 +163,9 @@ function loadState(): RoutinesState {
 ============================================================ */
 export function RutinasPanel() {
   const [state, setState] = useState<RoutinesState>(() => loadState());
+  // El horario semanal también se guarda en la nube (antes solo vivía en este navegador).
+  const setStateFromCloud = useCallback((v: RoutinesState) => setState(normalizeState(v)), []);
+  useSupabaseSync("cerebro_routines", state, setStateFromCloud, { isDefault: isEmptySchedule });
   const [paintCategoryId, setPaintCategoryId] = useState<string | null>(null);
   const [erasing, setErasing] = useState(false);
   const [isPainting, setIsPainting] = useState(false);
