@@ -1,22 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
-  Mountain, Plus, Pencil, Trash2, Settings2, ImageIcon, Sparkles, PartyPopper, FolderKanban,
+  Mountain, Plus, Pencil, Trash2, Settings2, ImageIcon, Sparkles, PartyPopper, FolderKanban, Hourglass,
 } from "lucide-react";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useCerebro } from "../CerebroContext";
 import { Empty } from "../TaskComponents";
 import { Dream, DreamsConfig, Project, PROJECT_STATUS_LABEL } from "../types";
 
 /* ============================================================
-   Sueños: aquí el hilo conductor es un viaje. El contador de
-   arriba es un panel de embarque (como los de un aeropuerto, de
-   noche, con la silueta de una cordillera en el borde) y cada
-   sueño es un billete de embarque hacia su destino: un talón
-   principal con el título y la descripción, una perforación, y
-   un resguardo con la foto en forma de medallón y la cuenta
-   atrás ("ETA"). Los proyectos asignados a ese sueño van debajo,
-   como escalas del mismo viaje.
+   Sueños: un contador técnico arriba (cuenta atrás + progreso hacia
+   la meta, con los colores del resto de la web) y debajo una tarjeta
+   por sueño: foto grande, título y descripción, y separado por un
+   "cajón" más oscuro, los proyectos que forman parte de ese sueño.
 ============================================================ */
 
 const PRESET_COLORS = ["#3b82f6", "#eab308", "#22c55e", "#ef4444", "#a855f7", "#ec4899", "#f97316", "#14b8a6"];
@@ -30,202 +28,138 @@ function getDelta(target: Date) {
   const s = Math.floor((ms % 60000) / 1000);
   return { d, h, m, s, ms };
 }
-type Urgency = "calm" | "focus" | "urgent" | "done";
-function urgencyOf(ms: number): Urgency {
-  if (ms <= 0) return "done";
-  const days = ms / 86400000;
-  if (days < 30) return "urgent";
-  if (days < 90) return "focus";
-  return "calm";
-}
-/** Vocabulario de panel de salidas: cada sueño "vuela" hacia su fecha. */
-const STATUS_WORD: Record<Urgency, string> = {
-  calm: "EN RUTA",
-  focus: "EMBARQUE PRONTO",
-  urgent: "ÚLTIMA LLAMADA",
-  done: "LLEGADA",
-};
-/** Color del estado sobre fondo oscuro (panel de embarque). */
-const STATUS_COLOR_DARK: Record<Urgency, string> = {
-  calm: "text-[#F6E7C9]/60",
-  focus: "text-amber-300",
-  urgent: "text-amber-300",
-  done: "text-emerald-300",
-};
-/** Color del estado sobre fondo claro (resguardo del billete). */
-const STATUS_COLOR_LIGHT: Record<Urgency, string> = {
-  calm: "text-muted-foreground",
-  focus: "text-amber-600",
-  urgent: "text-amber-600",
-  done: "text-emerald-600",
-};
 function pad(n: number, len = 2) { return String(n).padStart(len, "0"); }
 
-function useCountdown(deadline: string) {
+function useTick(everyMs = 1000) {
   const [, force] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => force(n => n + 1), 1000);
+    const id = setInterval(() => force(n => n + 1), everyMs);
     return () => clearInterval(id);
-  }, []);
-  const delta = getDelta(new Date(deadline));
-  return { ...delta, urg: urgencyOf(delta.ms) };
+  }, [everyMs]);
 }
 
-/** Resguardo del billete: ETA + estado, en el talón del sueño (fondo claro). */
-function EtaStub({ deadline }: { deadline: string }) {
-  const { d, urg } = useCountdown(deadline);
-  if (urg === "done") {
-    return <span className={cn("font-mono text-[11px] font-bold uppercase tracking-wider", STATUS_COLOR_LIGHT[urg])}>{STATUS_WORD[urg]}</span>;
-  }
+/** Etiqueta con los días que faltan para un sueño (sobre la foto). */
+function EtaChip({ deadline }: { deadline: string }) {
+  useTick(60000);
+  const target = new Date(deadline);
+  const { d, ms } = getDelta(target);
+  const dateLabel = format(target, "d MMM yyyy", { locale: es });
   return (
-    <div className="text-center">
-      <p className="font-mono text-lg font-bold tabular-nums leading-none text-foreground">{d}<span className="text-xs font-normal text-muted-foreground"> días</span></p>
-      <p className={cn("mt-0.5 flex items-center justify-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-wider", STATUS_COLOR_LIGHT[urg])}>
-        {urg === "urgent" && <span className="h-1 w-1 animate-pulse rounded-full bg-current" />}
-        {STATUS_WORD[urg]}
-      </p>
-    </div>
-  );
-}
-
-/* ---------- Panel de embarque (mega contador) ---------- */
-const STARS = [
-  { top: "12%", left: "8%", size: 3, opacity: 0.9 }, { top: "22%", left: "22%", size: 2, opacity: 0.6 },
-  { top: "10%", left: "38%", size: 2, opacity: 0.7 }, { top: "30%", left: "52%", size: 3, opacity: 0.5 },
-  { top: "15%", left: "68%", size: 2, opacity: 0.8 }, { top: "8%", left: "82%", size: 3, opacity: 0.6 },
-  { top: "26%", left: "92%", size: 2, opacity: 0.7 }, { top: "38%", left: "12%", size: 2, opacity: 0.5 },
-  { top: "42%", left: "78%", size: 2, opacity: 0.6 }, { top: "6%", left: "55%", size: 2, opacity: 0.9 },
-];
-
-function Digit({ value }: { value: string }) {
-  return (
-    <span className="relative inline-block overflow-hidden rounded-[4px] bg-black/20 px-0.5 font-mono text-3xl sm:text-5xl md:text-6xl font-bold tabular-nums leading-none text-[#F2A65A]">
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={value}
-          initial={{ y: "-60%", opacity: 0 }}
-          animate={{ y: "0%", opacity: 1 }}
-          exit={{ y: "60%", opacity: 0 }}
-          transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
-          className="inline-block drop-shadow-[0_0_6px_rgba(242,166,90,0.5)]"
-        >
-          {value}
-        </motion.span>
-      </AnimatePresence>
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-background/90 px-3 py-1 text-xs font-medium text-foreground shadow-sm backdrop-blur">
+      {ms === 0 ? (
+        <><PartyPopper className="h-3.5 w-3.5 text-emerald-500" /> Cumplido · {dateLabel}</>
+      ) : (
+        <>
+          <Hourglass className={cn("h-3.5 w-3.5", d < 30 ? "text-amber-500" : "text-primary")} />
+          <span className="tabular-nums">{d.toLocaleString("es-ES")}</span> días · {dateLabel}
+        </>
+      )}
     </span>
   );
 }
-function ClockUnit({ value, label }: { value: string; label: string }) {
+
+/* ---------- Contador principal ---------- */
+function CounterCell({ value, label }: { value: string; label: string }) {
   return (
-    <div className="flex flex-col items-center gap-1.5">
-      <div className="flex gap-[2px]">{value.split("").map((ch, i) => <Digit key={i + "_" + ch} value={ch} />)}</div>
-      <span className="font-mono text-[9px] uppercase tracking-[0.3em] text-[#F6E7C9]/50">{label}</span>
+    <div className="flex flex-col items-center gap-1 px-2 py-4 sm:py-6">
+      <span className="text-3xl font-semibold tabular-nums tracking-tight sm:text-5xl">{value}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
     </div>
   );
 }
 
 function MegaContador({ config, onConfigure }: { config: DreamsConfig; onConfigure: () => void }) {
-  const [, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  useTick(1000);
 
-  const target = useMemo(() => {
-    if (!config.birthDate) return null;
+  const { start, target } = useMemo(() => {
+    if (!config.birthDate) return { start: null as Date | null, target: null as Date | null };
+    const birth = new Date(config.birthDate);
     if (config.targetType === "age") {
-      const d = new Date(config.birthDate);
-      d.setFullYear(d.getFullYear() + config.targetValue);
-      return d;
+      const t = new Date(birth);
+      t.setFullYear(t.getFullYear() + config.targetValue);
+      return { start: birth, target: t };
     }
-    const d = new Date(config.baseDate || new Date().toISOString());
-    d.setFullYear(d.getFullYear() + config.targetValue);
-    return d;
+    const base = new Date(config.baseDate || new Date().toISOString());
+    const t = new Date(base);
+    t.setFullYear(t.getFullYear() + config.targetValue);
+    return { start: base, target: t };
   }, [config]);
 
-  const delta = target ? getDelta(target) : { d: 0, h: 0, m: 0, s: 0, ms: 0 };
-  const urg = target ? urgencyOf(delta.ms) : "calm";
+  const delta = target ? getDelta(target) : null;
+  const progress = start && target
+    ? Math.max(0, Math.min(1, (Date.now() - start.getTime()) / (target.getTime() - start.getTime())))
+    : 0;
 
   return (
-    <div
-      className="relative overflow-hidden rounded-[28px] p-6 pb-14 text-center shadow-lg sm:p-8 sm:pb-16 md:p-10 md:pb-20"
-      style={{ background: "linear-gradient(160deg, #11131F 0%, #262A47 55%, #3D3463 100%)" }}
-    >
-      {/* cielo nocturno */}
-      <div className="pointer-events-none absolute inset-0">
-        {STARS.map((s, i) => (
-          <span key={i} className="absolute rounded-full bg-white" style={{ top: s.top, left: s.left, width: s.size, height: s.size, opacity: s.opacity }} />
-        ))}
-        <div
-          className="absolute -right-6 top-4 h-28 w-28 rounded-full motion-safe:animate-pulse"
-          style={{ background: "radial-gradient(circle, rgba(242,166,90,0.55) 0%, transparent 70%)" }}
-        />
-      </div>
-
-      <div className="relative z-10 flex flex-wrap items-start justify-between gap-3 text-left">
-        <div>
-          <p className="font-serif text-xs italic text-[#F6E7C9]/60">Panel de embarque</p>
-          <h2 className="font-serif text-xl text-[#F6E7C9] sm:text-2xl md:text-3xl">
-            {config.targetType === "age" ? `Destino: ${config.targetValue} años` : `Destino: en ${config.targetValue} años`}
-          </h2>
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+      <header className="flex items-center justify-between gap-3 border-b px-5 py-3.5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-primary shadow-glow">
+            <Hourglass className="h-4 w-4 text-primary-foreground" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold leading-tight">
+              {config.targetType === "age" ? `Meta: llegar a los ${config.targetValue} años` : `Meta: dentro de ${config.targetValue} años`}
+            </h2>
+            {target && (
+              <p className="text-xs text-muted-foreground">{format(target, "d 'de' MMMM 'de' yyyy", { locale: es })}</p>
+            )}
+          </div>
         </div>
-        <button onClick={onConfigure} className="rounded-full p-2 text-[#F6E7C9]/50 transition hover:bg-white/10 hover:text-[#F6E7C9]" title="Configurar destino">
-          <Settings2 className="h-5 w-5" />
+        <button
+          onClick={onConfigure}
+          className="rounded-lg p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          title="Configurar meta"
+        >
+          <Settings2 className="h-4 w-4" />
         </button>
-      </div>
+      </header>
 
-      {!target ? (
-        <div className="relative z-10 mt-6 text-left">
-          <p className="text-sm text-[#F6E7C9]/70">Indica tu fecha de nacimiento para encender el panel.</p>
-          <button onClick={onConfigure} className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#F2A65A] px-5 py-2.5 text-sm font-medium text-[#1B1D2E] shadow hover:bg-[#f7b273]">
-            <Settings2 className="h-4 w-4" /> Configurar destino
+      {!target || !delta ? (
+        <div className="flex flex-col items-start gap-3 p-5">
+          <p className="text-sm text-muted-foreground">Indica tu fecha de nacimiento para activar la cuenta atrás.</p>
+          <button
+            onClick={onConfigure}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+          >
+            <Settings2 className="h-4 w-4" /> Configurar
           </button>
+        </div>
+      ) : delta.ms === 0 ? (
+        <div className="flex items-center justify-center gap-3 p-8 text-emerald-600 dark:text-emerald-400">
+          <PartyPopper className="h-6 w-6" />
+          <p className="text-lg font-semibold">Meta alcanzada</p>
         </div>
       ) : (
         <>
-          <div className="relative z-10 mt-5 flex items-center justify-center gap-1.5 text-[11px]">
-            {urg === "urgent" && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" />}
-            <span className={cn("font-mono font-semibold uppercase tracking-[0.25em]", STATUS_COLOR_DARK[urg])}>{STATUS_WORD[urg]}</span>
+          <div className="grid grid-cols-4 divide-x">
+            <CounterCell value={delta.d.toLocaleString("es-ES")} label="días" />
+            <CounterCell value={pad(delta.h)} label="horas" />
+            <CounterCell value={pad(delta.m)} label="min" />
+            <CounterCell value={pad(delta.s)} label="seg" />
           </div>
-          <div className="relative z-10 mt-4 flex items-end justify-center gap-1.5 sm:gap-3 md:gap-5">
-            <ClockUnit value={pad(delta.d, 4)} label="días" />
-            <span className="mb-4 font-mono text-2xl font-bold text-[#F6E7C9]/30 sm:text-4xl md:mb-6">:</span>
-            <ClockUnit value={pad(delta.h)} label="horas" />
-            <span className="mb-4 font-mono text-2xl font-bold text-[#F6E7C9]/30 sm:text-4xl md:mb-6">:</span>
-            <ClockUnit value={pad(delta.m)} label="min" />
-            <span className="mb-4 font-mono text-2xl font-bold text-[#F6E7C9]/30 sm:text-4xl md:mb-6">:</span>
-            <ClockUnit value={pad(delta.s)} label="seg" />
-          </div>
-          {delta.ms === 0 && (
-            <div className="absolute inset-0 z-20 grid place-items-center bg-[#11131F]/90 backdrop-blur-xl">
-              <div className="text-center">
-                <PartyPopper className="mx-auto h-10 w-10 animate-bounce text-amber-300" />
-                <p className="mt-3 font-serif text-xl text-[#F6E7C9]">Has llegado a tu destino</p>
-              </div>
+          <div className="space-y-1.5 border-t px-5 py-3.5">
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress * 100}%` }} />
             </div>
-          )}
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{(progress * 100).toFixed(1)}% del camino recorrido</span>
+              <span>{config.targetType === "age" ? "Nacimiento" : "Inicio"} → meta</span>
+            </div>
+          </div>
         </>
       )}
-
-      {/* cordillera en el horizonte */}
-      <svg viewBox="0 0 400 48" preserveAspectRatio="none" className="pointer-events-none absolute bottom-0 left-0 h-12 w-full sm:h-14">
-        <path
-          d="M0,48 L0,30 L28,14 L52,26 L82,6 L108,22 L140,10 L168,28 L196,16 L224,30 L252,12 L284,24 L312,8 L344,26 L372,14 L400,24 L400,48 Z"
-          fill="#0D0E18"
-        />
-      </svg>
-    </div>
+    </section>
   );
 }
 
-/* ---------- Modal de configuración del mega contador ---------- */
+/* ---------- Modal de configuración del contador ---------- */
 function ConfigModal({ initial, onClose, onSave }: { initial: DreamsConfig; onClose: () => void; onSave: (c: DreamsConfig) => void }) {
   const [draft, setDraft] = useState(initial);
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-md" onClick={onClose}>
       <div className="w-full max-w-sm rounded-2xl border bg-card p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <p className="font-serif text-xs italic text-muted-foreground">Configuración</p>
-        <h3 className="mt-1 text-xl font-bold">Destino de vida</h3>
+        <h3 className="text-xl font-bold">Meta de vida</h3>
         <div className="mt-4 space-y-4">
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Tu fecha de nacimiento</label>
@@ -241,10 +175,10 @@ function ConfigModal({ initial, onClose, onSave }: { initial: DreamsConfig; onCl
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              {draft.targetType === "age" ? "Edad de destino (ej: 25)" : "Años a partir de hoy (ej: 4)"}
+              {draft.targetType === "age" ? "Edad de la meta (ej: 25)" : "Años a partir de hoy (ej: 4)"}
             </label>
             <input type="number" value={draft.targetValue} onChange={(e) => setDraft({ ...draft, targetValue: Number(e.target.value) })}
-              className="w-full rounded-xl border bg-muted px-4 py-3 text-xl font-bold font-mono outline-none focus:border-primary/60" />
+              className="w-full rounded-xl border bg-muted px-4 py-3 text-xl font-bold outline-none focus:border-primary/60" />
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-2">
@@ -297,8 +231,7 @@ function DreamModal({ editing, onClose, onCreate, onUpdate }: {
         className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border bg-card p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="font-serif text-xs italic text-muted-foreground">{isEdit ? "Editar" : "Nuevo"} sueño</p>
-        <h3 className="mt-1 text-2xl font-bold">{isEdit ? "Refinar sueño" : "Un nuevo sueño"}</h3>
+        <h3 className="text-2xl font-bold">{isEdit ? "Editar sueño" : "Nuevo sueño"}</h3>
 
         <div className="mt-4 space-y-3">
           <input placeholder="Título" value={title} onChange={(e) => setTitle(e.target.value)}
@@ -341,7 +274,7 @@ function DreamModal({ editing, onClose, onCreate, onUpdate }: {
   );
 }
 
-/* ---------- Billete de embarque de un sueño ---------- */
+/* ---------- Tarjeta de un sueño: foto grande + descripción, y cajón de proyectos ---------- */
 function DreamBox({
   dream, linkedProjects, onEdit, onDelete, onOpenProject, highlighted,
 }: {
@@ -349,72 +282,67 @@ function DreamBox({
 }) {
   const color = dream.color ?? "#6366f1";
   return (
-    <motion.article
-      whileHover={{ y: -3 }}
+    <article
       className={cn(
-        "group relative flex overflow-hidden rounded-2xl bg-card shadow-sm transition-shadow",
+        "group flex h-full flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-md",
         highlighted && "ring-2 ring-primary shadow-lg",
       )}
     >
-      {/* Talón principal */}
-      <div className="min-w-0 flex-1 p-5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="font-serif text-xs italic text-muted-foreground">Destino</p>
-            <h3 className="truncate font-serif text-xl text-foreground sm:text-2xl">{dream.title}</h3>
+      {/* Parte del sueño: foto grande + título + descripción */}
+      <div className="relative aspect-[16/9] w-full overflow-hidden bg-muted">
+        {dream.image ? (
+          <img src={dream.image} alt={dream.title} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center" style={{ backgroundColor: `${color}22` }}>
+            <Mountain className="h-14 w-14" style={{ color }} />
           </div>
-          <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
-            <button onClick={onEdit} className="rounded-full p-1.5 text-foreground/60 hover:bg-muted hover:text-foreground"><Pencil className="h-4 w-4" /></button>
-            <button onClick={onDelete} className="rounded-full p-1.5 text-foreground/60 hover:bg-muted hover:text-foreground"><Trash2 className="h-4 w-4" /></button>
-          </div>
-        </div>
-        {dream.why && (
-          <p className="mt-2 line-clamp-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/80">{dream.why}</p>
         )}
+        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/50 to-transparent p-3 pt-10">
+          <EtaChip deadline={dream.deadline} />
+        </div>
+        <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+          <button onClick={onEdit} title="Editar" className="rounded-full bg-background/90 p-1.5 text-foreground shadow-sm backdrop-blur hover:bg-background"><Pencil className="h-3.5 w-3.5" /></button>
+          <button onClick={onDelete} title="Eliminar" className="rounded-full bg-background/90 p-1.5 text-foreground shadow-sm backdrop-blur hover:bg-background"><Trash2 className="h-3.5 w-3.5" /></button>
+        </div>
+      </div>
 
-        {linkedProjects.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t pt-3">
-            <FolderKanban className="h-3 w-3 shrink-0 text-muted-foreground" />
+      <div className="flex-1 space-y-2 p-5">
+        <h3 className="flex items-center gap-2 text-xl font-semibold leading-tight">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+          {dream.title}
+        </h3>
+        {dream.why ? (
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{dream.why}</p>
+        ) : (
+          <p className="text-sm italic text-muted-foreground/60">Sin descripción todavía.</p>
+        )}
+      </div>
+
+      {/* Cajón de proyectos: bloque separado y más oscuro */}
+      <div className="border-t-2 bg-muted/70 p-4">
+        <div className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold text-foreground/80">
+          <FolderKanban className="h-3.5 w-3.5" />
+          Proyectos de este sueño
+          <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{linkedProjects.length}</span>
+        </div>
+        {linkedProjects.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Aún no hay proyectos. Asigna este sueño desde el resumen de un proyecto.</p>
+        ) : (
+          <div className="grid gap-1.5">
             {linkedProjects.map(p => (
               <button
                 key={p.id}
                 onClick={() => onOpenProject(p.id)}
-                className="inline-flex items-center gap-1 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium transition hover:border-primary/50 hover:text-primary"
+                className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2 text-left text-sm shadow-sm transition hover:border-primary/50"
               >
-                {p.title}
-                <span className="text-muted-foreground">· {PROJECT_STATUS_LABEL[p.status]}</span>
+                <span className="min-w-0 truncate font-medium">{p.title}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{PROJECT_STATUS_LABEL[p.status]}</span>
               </button>
             ))}
           </div>
         )}
-        {linkedProjects.length === 0 && (
-          <p className="mt-3 border-t pt-3 text-[11px] text-muted-foreground/70">Sin escalas todavía — asigna este sueño desde un proyecto.</p>
-        )}
       </div>
-
-      {/* Perforación del billete */}
-      <div className="relative w-px shrink-0 self-stretch bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_5px,hsl(var(--border))_5px,hsl(var(--border))_10px)]">
-        <span className="absolute -top-2.5 left-1/2 h-5 w-5 -translate-x-1/2 rounded-full bg-background" />
-        <span className="absolute -bottom-2.5 left-1/2 h-5 w-5 -translate-x-1/2 rounded-full bg-background" />
-      </div>
-
-      {/* Resguardo: medallón + ETA */}
-      <div
-        className="flex w-32 shrink-0 flex-col items-center justify-center gap-2.5 p-4 text-center sm:w-36"
-        style={{ background: `linear-gradient(165deg, ${color}26, ${color}08)` }}
-      >
-        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 bg-muted shadow-sm sm:h-16 sm:w-16" style={{ borderColor: color }}>
-          {dream.image ? (
-            <img src={dream.image} alt={dream.title} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center" style={{ backgroundColor: `${color}1a` }}>
-              <Mountain className="h-6 w-6" style={{ color }} />
-            </div>
-          )}
-        </div>
-        <EtaStub deadline={dream.deadline} />
-      </div>
-    </motion.article>
+    </article>
   );
 }
 
@@ -464,7 +392,7 @@ export function SuenosPanel({
       {dreams.length === 0 ? (
         <Empty msg="Todavía no has creado ningún sueño." />
       ) : (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           {dreams.map(d => (
             <div key={d.id} ref={(el) => { refs.current[d.id] = el; }}>
               <DreamBox
