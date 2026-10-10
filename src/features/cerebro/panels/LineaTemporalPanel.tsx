@@ -1,35 +1,36 @@
 import { useMemo, useRef, useState } from "react";
-import { Hourglass, ChevronLeft, Mountain, FolderKanban, Maximize2 } from "lucide-react";
+import { Hourglass, ChevronLeft, ChevronRight, Mountain, FolderKanban, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCerebro } from "../CerebroContext";
 import { Empty } from "../TaskComponents";
 
 /* ============================================================
    Línea temporal: una regla regida por la edad del usuario, desde
-   su fecha de nacimiento. Por defecto se ve una ventana de 15 años
-   (7 y medio antes de hoy, 7 y medio después); desde ahí se puede
-   abrir a toda la vida con "Ver toda tu vida". Marca grande cada 5
-   años, marca pequeña cada año; cada año tiene una banda ancha (no
-   solo la rayita) en la que se puede hacer clic para el zoom, y el
-   salto a un periodo de 5 años tiene además un botón más grande y
-   destacado sobre esa marca, para que sea fácil de acertar.
-   Dentro de un periodo de 5 años y dentro de un año concreto, cada
-   año se ve dividido por meses (rayitas finas); al pasar el ratón y
-   quedarse un rato quieto se ve qué mes/año natural es ese punto.
-   Los sueños y proyectos con fecha se ven como cajas con una flecha
-   que señala el punto exacto de la regla; al hacer clic llevan a su
-   sitio.
+   su fecha de nacimiento. Por defecto se ven 3 periodos de 5 años
+   seguidos (el que contiene tu edad actual, el anterior y el
+   siguiente — p.ej. con 21 años: 15-20, 20-25, 25-30), y se puede
+   avanzar o retroceder de 5 en 5 años, o abrir "Ver toda tu vida".
+   La regla dibuja una marca pequeña cada año y una marca grande y
+   gruesa cada 5 años; la marca grande, además, tiene alrededor una
+   banda ancha clicable para abrir ese periodo de 5 años en detalle
+   (p.ej. al hacer clic en la marca del año 5 se abre el periodo de
+   5 a 10). Dentro de un periodo de 5 años, y dentro de un año
+   concreto, cada año se ve dividido por meses (rayitas finas); al
+   pasar el ratón y quedarse un rato quieto se ve qué mes/año
+   natural es ese punto. Los sueños y proyectos con fecha se ven
+   como cajas con una flecha que señala el punto exacto de la
+   regla; al hacer clic llevan a su sitio.
 ============================================================ */
 
 const YEAR_MS = 365.25 * 86400000;
 const MONTHS_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const MONTHS_FULL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const HOVER_DELAY_MS = 400;
-const DEFAULT_WINDOW_YEARS = 15;
+const DEFAULT_WINDOW_YEARS = 15; // 3 periodos de 5 años
 const BIG_BTN_HALF_YEARS = 1; // el botón de entrada a un periodo de 5 años mide 2 años de ancho
 
 type ZoomState =
-  | { level: "default" }
+  | { level: "default"; shift: number }
   | { level: "life" }
   | { level: "five"; startAge: number }
   | { level: "year"; calYear: number };
@@ -40,14 +41,21 @@ function daysInMonth(year: number, month: number) {
 
 function clamp01(n: number) { return Math.max(0, Math.min(1, n)); }
 
+/** Ventana [min,max] (en años) de 15 años, alineada a múltiplos de 5, centrada en el periodo
+ *  de 5 años de la edad actual + un desplazamiento ("shift") de periodos de 5 años. */
+function defaultWindowForShift(shift: number, currentAge: number, maxAge: number) {
+  const naturalAnchor = Math.floor(currentAge / 5) * 5;
+  const rawAnchor = naturalAnchor + shift * 5;
+  let min = rawAnchor - 5;
+  if (min < 0) min = 0;
+  if (min > maxAge - DEFAULT_WINDOW_YEARS) min = Math.max(0, maxAge - DEFAULT_WINDOW_YEARS);
+  return { min, max: min + DEFAULT_WINDOW_YEARS };
+}
+
 /** Ventana [min,max] en años de edad que cubre la regla, para los niveles "default" y "life". */
 function ageWindow(zoom: ZoomState, maxAge: number, currentAge: number): { min: number; max: number } | null {
   if (zoom.level === "life") return { min: 0, max: maxAge };
-  if (zoom.level === "default") {
-    let min = currentAge - DEFAULT_WINDOW_YEARS / 2;
-    if (min < 0) min = 0;
-    return { min, max: min + DEFAULT_WINDOW_YEARS };
-  }
+  if (zoom.level === "default") return defaultWindowForShift(zoom.shift, currentAge, maxAge);
   return null;
 }
 
@@ -130,7 +138,7 @@ function Ruler({
         ))}
       </div>
 
-      {/* Pista de la regla: bandas anchas clicables + botones grandes de 5 años + marcas de mes */}
+      {/* Pista de la regla: marcas pequeñas por año, marcas grandes cada 5 años (con banda ancha clicable) */}
       <div
         ref={trackRef}
         onMouseMove={onMove}
@@ -139,7 +147,7 @@ function Ruler({
       >
         <div className="absolute inset-x-0 top-1/2 h-2.5 -translate-y-1/2 rounded-full bg-muted" />
 
-        {/* Bandas normales: una por año (o por mes, según el nivel) */}
+        {/* Bandas normales: una por año (o por mes, según el nivel), resaltan al pasar el ratón */}
         {bands.map((b, i) => (
           <button
             key={i}
@@ -154,21 +162,21 @@ function Ruler({
           />
         ))}
 
-        {/* Marcas finas de mes (solo visuales) */}
+        {/* Marcas pequeñas: una por año (o por mes, dentro de un periodo de 5 años) */}
         {minorTicks.map((t, i) => (
-          <div key={i} style={{ left: `${t.pct * 100}%` }} className="absolute top-1/2 h-1.5 w-[1px] -translate-x-1/2 -translate-y-1/2 bg-foreground/30" />
+          <div key={i} style={{ left: `${t.pct * 100}%` }} className="pointer-events-none absolute top-1/2 h-1.5 w-[1px] -translate-x-1/2 -translate-y-1/2 bg-foreground/30" />
         ))}
 
-        {/* Botones grandes: entrada a un periodo de 5 años, más anchos y destacados */}
+        {/* Marcas grandes: cada 5 años, gruesas y destacadas, con banda ancha clicable para abrir ese periodo */}
         {bigButtons.map((b, i) => (
           <button
             key={i}
             onClick={b.onClick}
             title={`Ver de ${b.label}`}
             style={{ left: `${b.pct0 * 100}%`, width: `${(b.pct1 - b.pct0) * 100}%` }}
-            className="absolute inset-y-0 z-10 flex items-center justify-center rounded-lg border border-primary/40 bg-primary/15 transition-colors hover:bg-primary/30"
+            className="absolute inset-y-0 z-10 flex items-center justify-center rounded-lg transition-colors hover:bg-primary/15"
           >
-            <span className="h-4 w-[2px] rounded-full bg-primary" />
+            <span className="h-7 w-1 rounded-full bg-primary shadow-sm" />
           </button>
         ))}
 
@@ -225,7 +233,7 @@ export function LineaTemporalPanel({
   onOpenDream, onOpenProject,
 }: { onOpenDream: (id: string) => void; onOpenProject: (id: string) => void }) {
   const { dreams, projects, dreamsConfig } = useCerebro();
-  const [stack, setStack] = useState<ZoomState[]>([{ level: "default" }]);
+  const [stack, setStack] = useState<ZoomState[]>([{ level: "default", shift: 0 }]);
   const zoom = stack[stack.length - 1];
 
   const birth = dreamsConfig.birthDate ? new Date(dreamsConfig.birthDate) : null;
@@ -237,8 +245,13 @@ export function LineaTemporalPanel({
   const pushFive = (startAge: number) => setStack(s => [...s, { level: "five", startAge }]);
   const pushYear = (calYear: number) => setStack(s => [...s, { level: "year", calYear }]);
   const pushLife = () => setStack(s => [...s, { level: "life" }]);
+  const shiftDefault = (delta: number) => setStack(s => {
+    const top = s[s.length - 1];
+    if (top.level !== "default") return s;
+    return [...s.slice(0, -1), { level: "default", shift: top.shift + delta }];
+  });
 
-  /** Bandas clicables, marcas finas de mes, botones grandes de 5 años, según el nivel de zoom. */
+  /** Bandas clicables, marcas finas, marcas grandes de 5 años, según el nivel de zoom. */
   const { bands, minorTicks, bigButtons, hoverLabel } = useMemo(() => {
     if (!birth) return { bands: [] as Band[], minorTicks: [] as MinorTick[], bigButtons: [] as BigButton[], hoverLabel: () => "" };
 
@@ -246,6 +259,7 @@ export function LineaTemporalPanel({
     if (win) {
       const span = win.max - win.min;
       const bs: Band[] = [];
+      const minor: MinorTick[] = [];
       const big: BigButton[] = [];
       const fromAge = Math.floor(win.min);
       const toAge = Math.ceil(win.max);
@@ -254,7 +268,9 @@ export function LineaTemporalPanel({
         const pct1 = clamp01((age + 1 - win.min) / span);
         if (pct1 <= pct0) continue;
         bs.push({ pct0, pct1, label: age % 5 === 0 ? String(age) : "", onClick: () => pushYear(birth.getFullYear() + age) });
+        minor.push({ pct: pct0 }); // marca pequeña al inicio de cada año
       }
+      minor.push({ pct: clamp01((toAge - win.min) / span) }); // marca pequeña de cierre
       for (let age5 = Math.ceil(win.min / 5) * 5; age5 <= win.max; age5 += 5) {
         const pct0 = clamp01((age5 - BIG_BTN_HALF_YEARS - win.min) / span);
         const pct1 = clamp01((age5 + BIG_BTN_HALF_YEARS - win.min) / span);
@@ -263,7 +279,7 @@ export function LineaTemporalPanel({
         big.push({ pct0, pct1, label: `${startAge}-${startAge + 5} años`, onClick: () => pushFive(startAge) });
       }
       return {
-        bands: bs, minorTicks: [] as MinorTick[], bigButtons: big,
+        bands: bs, minorTicks: minor, bigButtons: big,
         hoverLabel: (pct: number) => `Año natural: ${birth.getFullYear() + Math.floor(win.min + pct * span)}`,
       };
     }
@@ -326,7 +342,11 @@ export function LineaTemporalPanel({
     );
   }
 
-  const zoomLabel = zoom.level === "default" ? "Ahora · últimos y próximos años"
+  const defaultWin = zoom.level === "default" ? defaultWindowForShift(zoom.shift, currentAge, maxAge) : null;
+  const canGoPrev = zoom.level === "default" && defaultWindowForShift(zoom.shift - 1, currentAge, maxAge).min < defaultWin!.min;
+  const canGoNext = zoom.level === "default" && defaultWindowForShift(zoom.shift + 1, currentAge, maxAge).min > defaultWin!.min;
+
+  const zoomLabel = zoom.level === "default" ? `De ${Math.round(defaultWin!.min)} a ${Math.round(defaultWin!.max)} años`
     : zoom.level === "life" ? "Toda tu vida"
     : zoom.level === "five" ? `De ${zoom.startAge} a ${zoom.startAge + 5} años`
     : `Año ${zoom.calYear}`;
@@ -340,12 +360,30 @@ export function LineaTemporalPanel({
         </div>
         <div className="flex items-center gap-2">
           {zoom.level === "default" && (
-            <button
-              onClick={pushLife}
-              className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
-            >
-              <Maximize2 className="h-3.5 w-3.5" /> Ver toda tu vida
-            </button>
+            <>
+              <button
+                onClick={() => shiftDefault(-1)}
+                disabled={!canGoPrev}
+                className="inline-flex items-center justify-center rounded-full border p-1.5 text-muted-foreground transition hover:text-foreground disabled:opacity-30"
+                title="5 años antes"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => shiftDefault(1)}
+                disabled={!canGoNext}
+                className="inline-flex items-center justify-center rounded-full border p-1.5 text-muted-foreground transition hover:text-foreground disabled:opacity-30"
+                title="5 años después"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={pushLife}
+                className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+              >
+                <Maximize2 className="h-3.5 w-3.5" /> Ver toda tu vida
+              </button>
+            </>
           )}
           {stack.length > 1 && (
             <button
