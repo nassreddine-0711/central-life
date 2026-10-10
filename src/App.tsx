@@ -19,6 +19,7 @@ import Finanzas from "./pages/Finanzas.tsx";
 import Objetivos from "./pages/Objetivos.tsx";
 import Cerebro from "./pages/Cerebro.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import Recuperar from "./pages/Recuperar.tsx";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -56,6 +57,7 @@ function AppRoutes() {
                         <Route path="/finanzas" element={<Finanzas />} />
                         <Route path="/objetivos" element={<Objetivos />} />
                         <Route path="/cerebro" element={<Cerebro />} />
+                        <Route path="/recuperar" element={<Recuperar />} />
                       </Route>
                       <Route path="*" element={<NotFound />} />
                     </Routes>
