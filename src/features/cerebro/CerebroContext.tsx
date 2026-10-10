@@ -9,11 +9,13 @@ import {
   ProjectCategory, ProjectUpdate,
   ApunteFolder, ApunteDoc, ApunteAudio, ApunteLink,
   Objetivo, RetroEntry, RetroResult, ProjectExpense, ProjectTimeSlot, ProjectTimeEntry,
+  Dream, DreamsConfig,
   TASKS_KEY, NOTES_KEY, NOTE_CATS_KEY, PROJECTS_KEY, PROJECT_CATS_KEY, PROJECT_UPDATES_KEY,
   DEFAULT_NOTE_CAT, uid, load,
   nextRecurrence,
   APUNTE_FOLDERS_KEY, APUNTE_DOCS_KEY, APUNTE_AUDIOS_KEY, APUNTES_AUDIO_BUCKET,
   PROJECTS_ROOT_FOLDER_ID, OBJETIVOS_KEY, RETRO_ENTRIES_KEY, PROJECT_EXPENSES_KEY, PROJECT_TIME_ENTRIES_KEY,
+  DREAMS_KEY, DREAMS_CONFIG_KEY, DEFAULT_DREAMS_CONFIG,
 } from "./types";
 import { startTranscription, pollTranscription } from "./apuntes/apuntesApi";
 
@@ -46,7 +48,7 @@ interface CerebroCtx {
   projectTasks: (projectId: string) => Task[];
   projectProgress: (projectId: string) => { done: number; total: number; pct: number };
   moveTaskStage: (taskId: string, stage: ProjectStage) => void;
-  projectByGoalId: (goalId: string) => Project | undefined;
+  projectsByDreamId: (dreamId: string) => Project[];
   addProjectCategory: (name: string, color?: string) => ProjectCategory;
   updateProjectCategory: (id: string, patch: Partial<ProjectCategory>) => void;
   delProjectCategory: (id: string) => void;
@@ -83,6 +85,14 @@ interface CerebroCtx {
   confirmTimeSession: (projectId: string, date: string, minutes: number) => void;
   declineTimeSession: (projectId: string, date: string) => void;
   projectAccumulatedMinutes: (projectId: string) => number;
+
+  // Suenos (antes "Vision actual" del Roadmap)
+  dreams: Dream[];
+  addDream: (partial: Partial<Dream> & { title: string }) => Dream;
+  updateDream: (id: string, patch: Partial<Dream>) => void;
+  delDream: (id: string) => void;
+  dreamsConfig: DreamsConfig;
+  updateDreamsConfig: (patch: Partial<DreamsConfig>) => void;
 
   // Archivo (carpetas + notas locales + audios transcritos)
   apunteFolders: ApunteFolder[];
@@ -163,6 +173,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const [retroEntries, setRetroEntries] = useState<RetroEntry[]>(() => load(RETRO_ENTRIES_KEY, []));
   const [projectExpenses, setProjectExpenses] = useState<ProjectExpense[]>(() => load(PROJECT_EXPENSES_KEY, []));
   const [projectTimeEntries, setProjectTimeEntries] = useState<ProjectTimeEntry[]>(() => load(PROJECT_TIME_ENTRIES_KEY, []));
+  const [dreams, setDreams] = useState<Dream[]>(() => load(DREAMS_KEY, []));
+  const [dreamsConfig, setDreamsConfig] = useState<DreamsConfig>(() => load(DREAMS_CONFIG_KEY, DEFAULT_DREAMS_CONFIG));
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
 
   const [noteSheetState, setNoteSheetState] = useState<{ open: boolean; linkedTo?: LinkedRef; defaultCategory?: string; defaultKind?: "note" | "ref"; defaultFolderId?: string | null; defaultProjectId?: string }>({ open: false });
@@ -193,6 +205,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useEffect(() => { saveLocal(RETRO_ENTRIES_KEY, retroEntries, "las retrospectivas"); }, [retroEntries, saveLocal]);
   useEffect(() => { saveLocal(PROJECT_EXPENSES_KEY, projectExpenses, "los gastos de proyecto"); }, [projectExpenses, saveLocal]);
   useEffect(() => { saveLocal(PROJECT_TIME_ENTRIES_KEY, projectTimeEntries, "las sesiones de tiempo dedicado"); }, [projectTimeEntries, saveLocal]);
+  useEffect(() => { saveLocal(DREAMS_KEY, dreams, "los sueños"); }, [dreams, saveLocal]);
+  useEffect(() => { saveLocal(DREAMS_CONFIG_KEY, dreamsConfig, "la configuración de sueños"); }, [dreamsConfig, saveLocal]);
 
   // Asegura que la carpeta fija "Proyectos" siempre existe y que cada proyecto
   // tiene su subcarpeta dentro de ella (por si algún proyecto antiguo no la tenía).
@@ -223,6 +237,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   const setRetroEntriesCb = useCallback((v: RetroEntry[]) => setRetroEntries(v), []);
   const setProjectExpensesCb = useCallback((v: ProjectExpense[]) => setProjectExpenses(v), []);
   const setProjectTimeEntriesCb = useCallback((v: ProjectTimeEntry[]) => setProjectTimeEntries(v), []);
+  const setDreamsCb = useCallback((v: Dream[]) => setDreams(v), []);
+  const setDreamsConfigCb = useCallback((v: DreamsConfig) => setDreamsConfig(v), []);
   useSupabaseSync("cerebro_tasks", tasks, setTasksCb);
   useSupabaseSync("cerebro_notes", notes, setNotesCb);
   useSupabaseSync("cerebro_notecats", noteCats, setNoteCatsCb);
@@ -236,6 +252,8 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
   useSupabaseSync("cerebro_retro_entries", retroEntries, setRetroEntriesCb);
   useSupabaseSync("cerebro_project_expenses", projectExpenses, setProjectExpensesCb);
   useSupabaseSync("cerebro_project_time_entries", projectTimeEntries, setProjectTimeEntriesCb);
+  useSupabaseSync("cerebro_dreams", dreams, setDreamsCb);
+  useSupabaseSync("cerebro_dreams_config", dreamsConfig, setDreamsConfigCb);
 
   const addTask: CerebroCtx["addTask"] = useCallback((partial) => {
     const t: Task = {
@@ -367,7 +385,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       categoryId: partial.categoryId,
       startDate: partial.startDate,
       dueDate: partial.dueDate,
-      linkedGoalId: partial.linkedGoalId,
+      dreamId: partial.dreamId,
       archived: false,
       createdAt: new Date().toISOString(),
       budgetTotal: partial.budgetTotal,
@@ -453,7 +471,37 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const projectByGoalId = useCallback((goalId: string) => projects.find(p => p.linkedGoalId === goalId), [projects]);
+  const projectsByDreamId = useCallback((dreamId: string) => projects.filter(p => p.dreamId === dreamId), [projects]);
+
+  /* ---------- Suenos (antes "Vision actual" del Roadmap) ---------- */
+  const addDream: CerebroCtx["addDream"] = useCallback((partial) => {
+    const d: Dream = {
+      id: uid(),
+      title: partial.title,
+      why: partial.why ?? "",
+      deadline: partial.deadline ?? new Date().toISOString(),
+      image: partial.image,
+      color: partial.color,
+      createdAt: new Date().toISOString(),
+    };
+    setDreams(prev => [d, ...prev]);
+    return d;
+  }, []);
+
+  const updateDream = useCallback((id: string, patch: Partial<Dream>) => {
+    setDreams(prev => prev.map(d => d.id === id ? { ...d, ...patch } : d));
+  }, []);
+
+  const delDream = useCallback((id: string) => {
+    if (!confirm("¿Eliminar este sueño? Los proyectos asignados a él se quedarán sin sueño.")) return;
+    setDreams(prev => prev.filter(d => d.id !== id));
+    setProjects(prev => prev.map(p => p.dreamId === id ? { ...p, dreamId: undefined } : p));
+  }, []);
+
+  const updateDreamsConfig = useCallback((patch: Partial<DreamsConfig>) => {
+    setDreamsConfig(prev => ({ ...prev, ...patch }));
+  }, []);
+
 
   const addProjectCategory: CerebroCtx["addProjectCategory"] = useCallback((name, color) => {
     const c: ProjectCategory = { id: uid(), name: name.trim() || "Sin nombre", color, createdAt: new Date().toISOString() };
@@ -893,7 +941,7 @@ ${audio.summary || audio.transcript || ""}
     tasks, notes, noteCats, projects, projectCategories, projectUpdates, fadingIds,
     addTask, toggleTask, delTask, updateTask,
     addNote, updateNote, delNote, addNoteCategory, deleteNoteCategory,
-    addProject, updateProject, delProject, moveProjectStatus, projectTasks, projectProgress, moveTaskStage, projectByGoalId,
+    addProject, updateProject, delProject, moveProjectStatus, projectTasks, projectProgress, moveTaskStage, projectsByDreamId,
     addProjectCategory, updateProjectCategory, delProjectCategory,
     addProjectUpdate, delProjectUpdate, projectUpdatesFor, projectNotes,
     apunteFolders, apunteDocs, apunteAudios,
@@ -906,6 +954,7 @@ ${audio.summary || audio.transcript || ""}
     projectExpenses, expensesFor, addExpense, delExpense, projectBudgetRemaining,
     projectTimeEntries, updateProjectTimeSchedule, pendingTimeConfirmations, confirmTimeSession, declineTimeSession, projectAccumulatedMinutes,
     projectFolder,
+    dreams, addDream, updateDream, delDream, dreamsConfig, updateDreamsConfig,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     _noteSheetState: noteSheetState,
@@ -918,7 +967,7 @@ ${audio.summary || audio.transcript || ""}
     tasks, notes, noteCats, projects, projectCategories, projectUpdates, fadingIds,
     addTask, toggleTask, delTask, updateTask,
     addNote, updateNote, delNote, addNoteCategory, deleteNoteCategory,
-    addProject, updateProject, delProject, moveProjectStatus, projectTasks, projectProgress, moveTaskStage, projectByGoalId,
+    addProject, updateProject, delProject, moveProjectStatus, projectTasks, projectProgress, moveTaskStage, projectsByDreamId,
     addProjectCategory, updateProjectCategory, delProjectCategory,
     addProjectUpdate, delProjectUpdate, projectUpdatesFor, projectNotes,
     apunteFolders, apunteDocs, apunteAudios,
@@ -931,6 +980,7 @@ ${audio.summary || audio.transcript || ""}
     projectExpenses, expensesFor, addExpense, delExpense, projectBudgetRemaining,
     projectTimeEntries, updateProjectTimeSchedule, pendingTimeConfirmations, confirmTimeSession, declineTimeSession, projectAccumulatedMinutes,
     projectFolder,
+    dreams, addDream, updateDream, delDream, dreamsConfig, updateDreamsConfig,
     openNoteSheet, openTaskDialog, openQuickCapture, createTaskFromNote,
     tasksByMilestone, notesByMilestone, milestoneProgress,
     noteSheetState, taskDialogState, quickOpen,

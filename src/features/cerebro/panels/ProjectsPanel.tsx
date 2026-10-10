@@ -9,7 +9,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Inbox, FolderKanban, Settings2, Trash2, Calendar as CalendarIcon, Hourglass,
   ArrowRight, ChevronRight, GripVertical, MessageSquarePlus, ListTodo, FileText, Target,
-  Wallet, BookOpen, Clock, Check, X as XIcon,
+  Wallet, BookOpen, Clock, Check, X as XIcon, Mountain,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,8 @@ import { cn } from "@/lib/utils";
 import { useCerebro } from "../CerebroContext";
 import { Empty, TaskList } from "../TaskComponents";
 import { NoteEditorDialog } from "../ApunteNoteDialog";
+import { SuenosPanel } from "./SuenosPanel";
+import { LineaTemporalPanel } from "./LineaTemporalPanel";
 import {
   Project, ProjectStatus, ProjectStage, PROJECT_STAGES, PROJECT_KANBAN_STATUSES,
   PROJECT_STATUS_LABEL, PROJECT_CAT_PALETTE, Objetivo, WEEKDAY_FULL, RetroResult, RETRO_RESULT_LABEL,
@@ -274,7 +276,7 @@ function StageColumn({ stageKey, label, count, children }: { stageKey: ProjectSt
 
 /* ---------- Pestaña: Resumen (fechas + cuenta atrás + actualizaciones) ---------- */
 function ResumenTab({ project }: { project: Project }) {
-  const { updateProject, projectUpdatesFor, addProjectUpdate, delProjectUpdate } = useCerebro();
+  const { updateProject, projectUpdatesFor, addProjectUpdate, delProjectUpdate, dreams } = useCerebro();
   const [newUpdate, setNewUpdate] = useState("");
   const updates = projectUpdatesFor(project.id);
 
@@ -291,6 +293,16 @@ function ResumenTab({ project }: { project: Project }) {
             rows={4}
             placeholder="¿Cuál es el objetivo principal de este proyecto?"
           />
+        </div>
+        <div>
+          <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Mountain className="h-3.5 w-3.5" />Sueño al que pertenece</label>
+          <Select value={project.dreamId ?? "__none"} onValueChange={(v) => updateProject(project.id, { dreamId: v === "__none" ? undefined : v })}>
+            <SelectTrigger className="h-9"><SelectValue placeholder="Sin sueño asignado" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none">Sin sueño asignado (va por libre)</SelectItem>
+              {dreams.map(d => <SelectItem key={d.id} value={d.id}>{d.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -728,11 +740,10 @@ function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () =
   );
 }
 
-/* ---------- Panel principal ---------- */
-export function ProjectsPanel() {
+/* ---------- Kanban de proyectos (pestaña "Proyectos") ---------- */
+function ProjectsKanbanPanel({ openProjectId, setOpenProjectId }: { openProjectId: string | null; setOpenProjectId: (id: string | null) => void }) {
   const { projects, addProject, moveProjectStatus } = useCerebro();
   const [newTitle, setNewTitle] = useState("");
-  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   const [manageCatsOpen, setManageCatsOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -823,5 +834,43 @@ export function ProjectsPanel() {
       {openProjectId && <ProjectModal projectId={openProjectId} onClose={() => setOpenProjectId(null)} />}
       <ManageProjectCategoriesDialog open={manageCatsOpen} onOpenChange={setManageCatsOpen} />
     </div>
+  );
+}
+
+/* ---------- Panel principal: Sueños | Proyectos | Línea temporal ---------- */
+export function ProjectsPanel() {
+  const [tab, setTab] = useState("proyectos");
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
+  const [focusDreamId, setFocusDreamId] = useState<string | null>(null);
+
+  const openProject = (id: string) => { setTab("proyectos"); setOpenProjectId(id); };
+  const openDream = (id: string) => { setTab("suenos"); setFocusDreamId(id); };
+
+  return (
+    <Tabs value={tab} onValueChange={setTab} className="w-full">
+      <div className="mb-4 -mx-1 overflow-x-auto px-1">
+        <TabsList className="inline-flex h-auto w-max gap-1">
+          <TabsTrigger value="suenos" className="whitespace-nowrap">
+            <Mountain className="mr-2 h-4 w-4" />Sueños
+          </TabsTrigger>
+          <TabsTrigger value="proyectos" className="whitespace-nowrap">
+            <FolderKanban className="mr-2 h-4 w-4" />Proyectos
+          </TabsTrigger>
+          <TabsTrigger value="linea-temporal" className="whitespace-nowrap">
+            <Hourglass className="mr-2 h-4 w-4" />Línea temporal
+          </TabsTrigger>
+        </TabsList>
+      </div>
+
+      <TabsContent value="suenos" className="mt-0">
+        <SuenosPanel onOpenProject={openProject} focusDreamId={focusDreamId} onFocusHandled={() => setFocusDreamId(null)} />
+      </TabsContent>
+      <TabsContent value="proyectos" className="mt-0">
+        <ProjectsKanbanPanel openProjectId={openProjectId} setOpenProjectId={setOpenProjectId} />
+      </TabsContent>
+      <TabsContent value="linea-temporal" className="mt-0">
+        <LineaTemporalPanel onOpenDream={openDream} onOpenProject={openProject} />
+      </TabsContent>
+    </Tabs>
   );
 }

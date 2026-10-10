@@ -92,8 +92,8 @@ export interface Project {
   startDate?: string;
   /** Fecha final del proyecto (fecha límite / cuenta atrás). */
   dueDate?: string;
-  /** Id de un Goal (RoadMap) marcado como proyecto, si viene de ahí. */
-  linkedGoalId?: string;
+  /** Id del Sueño (Dream) al que se ha asignado este proyecto a mano, si alguno. */
+  dreamId?: string;
   archived?: boolean;
   createdAt: string;
   /** Presupuesto total asignado al proyecto (los gastos viven en ProjectExpense). */
@@ -248,6 +248,45 @@ export const APUNTE_FOLDERS_KEY = "cerebro.apunteFolders.v1";
 export const APUNTE_DOCS_KEY = "cerebro.apunteDocs.v1";
 export const APUNTE_AUDIOS_KEY = "cerebro.apunteAudios.v1";
 export const APUNTES_AUDIO_BUCKET = "apuntes-audio";
+
+/* ---------- Suenos (antes "Vision actual" del Roadmap) ----------
+   Caja grande por sueno: titulo + descripcion ("por que") + foto + fecha
+   objetivo (para el contador). Sin jerarquia de objetivos/hitos: los
+   proyectos se asignan a mano a un sueno desde el propio proyecto
+   (Project.dreamId), y puede haber proyectos sin ningun sueno asignado. */
+export interface Dream {
+  id: string;
+  title: string;
+  /** Descripcion / "por que" de este sueno. */
+  why: string;
+  /** Fecha objetivo (ISO) para el contador de cuenta atras. */
+  deadline: string;
+  /** Foto del sueno, como data URL. */
+  image?: string;
+  color?: string;
+  createdAt: string;
+}
+
+export const DREAMS_KEY = "cerebro.dreams.v1";
+
+export type DreamsTargetType = "age" | "years";
+
+/** Config del "mega contador" que se ve encima de los Suenos. */
+export interface DreamsConfig {
+  birthDate: string;
+  targetType: DreamsTargetType;
+  targetValue: number;
+  baseDate: string;
+}
+
+export const DEFAULT_DREAMS_CONFIG: DreamsConfig = {
+  birthDate: "",
+  targetType: "age",
+  targetValue: 25,
+  baseDate: "",
+};
+
+export const DREAMS_CONFIG_KEY = "cerebro.dreamsConfig.v1";
 
 export const WEEKDAY_LABELS = ["L", "M", "X", "J", "V", "S", "D"] as const;
 export const WEEKDAY_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"] as const;
