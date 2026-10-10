@@ -283,50 +283,44 @@ function DreamBox({
     <motion.article
       whileHover={{ y: -3 }}
       className={cn(
-        "group relative flex min-h-[420px] flex-col overflow-hidden rounded-3xl border bg-card shadow-sm transition-shadow",
+        "group relative flex flex-col overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow",
         highlighted && "ring-2 ring-primary shadow-lg",
       )}
       style={{ borderLeftColor: dream.color, borderLeftWidth: "5px" }}
     >
-      {/* Mitad superior: el sueño */}
-      <div className="relative flex-1">
-        {dream.image ? (
-          <div className="relative h-56 w-full overflow-hidden bg-muted sm:h-64">
+      {/* Fila superior rectangular: miniatura + sueño */}
+      <div className="flex gap-4 p-5">
+        <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-muted sm:h-28 sm:w-28">
+          {dream.image ? (
             <img src={dream.image} alt={dream.title} className="h-full w-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
-            <span className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-background/80 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.3em] backdrop-blur" style={{ color: dream.color }}>
-              <Mountain className="h-3 w-3" /> Sueño
-            </span>
-            <div className="absolute right-4 top-4 flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
-              <button onClick={onEdit} className="rounded-full bg-background/80 p-2 text-foreground/80 backdrop-blur hover:text-foreground"><Pencil className="h-4 w-4" /></button>
-              <button onClick={onDelete} className="rounded-full bg-background/80 p-2 text-foreground/80 backdrop-blur hover:text-foreground"><Trash2 className="h-4 w-4" /></button>
+          ) : (
+            <div className="flex h-full w-full items-center justify-center" style={{ backgroundColor: `${dream.color ?? "#6366f1"}1a` }}>
+              <Mountain className="h-8 w-8" style={{ color: dream.color }} />
             </div>
-            <h3 className="absolute bottom-3 left-4 right-4 text-2xl font-bold text-white drop-shadow sm:text-3xl">{dream.title}</h3>
-          </div>
-        ) : (
-          <div className="p-6 pb-0">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-foreground/10 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.3em]" style={{ color: dream.color }}>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.3em]" style={{ color: dream.color }}>
                 <Mountain className="h-3 w-3" /> Sueño
               </span>
-              <div className="flex items-center gap-2 opacity-0 transition group-hover:opacity-100">
-                <button onClick={onEdit} className="text-foreground/70 hover:text-foreground"><Pencil className="h-4 w-4" /></button>
-                <button onClick={onDelete} className="text-foreground/70 hover:text-foreground"><Trash2 className="h-4 w-4" /></button>
-              </div>
+              <h3 className="mt-0.5 truncate text-xl font-bold sm:text-2xl">{dream.title}</h3>
             </div>
-            <h3 className="mt-3 text-2xl font-bold sm:text-3xl">{dream.title}</h3>
+            <div className="flex shrink-0 items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
+              <button onClick={onEdit} className="rounded-full p-1.5 text-foreground/70 hover:bg-muted hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+              <button onClick={onDelete} className="rounded-full p-1.5 text-foreground/70 hover:bg-muted hover:text-foreground"><Trash2 className="h-4 w-4" /></button>
+            </div>
           </div>
-        )}
-
-        <div className="p-6 pt-4">
-          <GoalCountdown deadline={dream.deadline} />
+          <div className="mt-1.5"><GoalCountdown deadline={dream.deadline} /></div>
           {dream.why && (
-            <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">{dream.why}</p>
+            <p className="mt-2 line-clamp-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">{dream.why}</p>
           )}
         </div>
       </div>
 
-      {/* Mitad inferior: proyectos asignados a este sueño */}
+      {/* Franja inferior: proyectos asignados a este sueño */}
       <div className="border-t bg-muted/30 p-5">
         <p className="mb-2 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
           <FolderKanban className="h-3.5 w-3.5" /> Proyectos de este sueño · {linkedProjects.length}
