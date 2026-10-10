@@ -1,8 +1,5 @@
-import { Brain, ListTodo, Library as LibraryIcon, Archive, Plus, X, StickyNote, Zap } from "lucide-react";
-import { useState } from "react";
+import { Brain, ListTodo, Library as LibraryIcon, Archive } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { useCerebro } from "@/features/cerebro/CerebroContext";
 import { AccionEnfoquePanel } from "@/features/cerebro/panels/AccionEnfoquePanel";
 import { BibliotecaPanel } from "@/features/cerebro/panels/BibliotecaPanel";
 import { ArchivoPanel } from "@/features/cerebro/panels/ArchivoPanel";
@@ -10,9 +7,6 @@ import { TaskDialog, NoteSheet, QuickCaptureDrawer } from "@/features/cerebro/Di
 import "@/features/knowledge/atelier.css";
 
 function CerebroShell() {
-  const { openTaskDialog, openNoteSheet, openQuickCapture } = useCerebro();
-  const [fabOpen, setFabOpen] = useState(false);
-
   return (
     <div className="w-full px-4 py-8 md:px-8 md:py-12">
       {/* Header */}
@@ -49,26 +43,6 @@ function CerebroShell() {
         <TabsContent value="biblioteca"><BibliotecaPanel /></TabsContent>
         <TabsContent value="archivo"><ArchivoPanel /></TabsContent>
       </Tabs>
-
-      {/* FAB */}
-      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
-        {fabOpen && (
-          <>
-            <Button className="shadow-lg" onClick={() => { openTaskDialog(); setFabOpen(false); }}>
-              <ListTodo className="h-4 w-4" /> Tarea
-            </Button>
-            <Button className="shadow-lg" variant="secondary" onClick={() => { openNoteSheet(); setFabOpen(false); }}>
-              <StickyNote className="h-4 w-4" /> Nota
-            </Button>
-            <Button className="shadow-lg" variant="outline" onClick={() => { openQuickCapture(); setFabOpen(false); }}>
-              <Zap className="h-4 w-4" /> Captura rápida
-            </Button>
-          </>
-        )}
-        <Button size="icon" className="h-14 w-14 rounded-full shadow-glow" onClick={() => setFabOpen(o => !o)}>
-          {fabOpen ? <X className="h-6 w-6" /> : <Plus className="h-6 w-6" />}
-        </Button>
-      </div>
 
       {/* Mounted modals */}
       <TaskDialog />

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, differenceInCalendarDays } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -8,7 +8,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, Inbox, FolderKanban, Settings2, Trash2, Calendar as CalendarIcon, Hourglass,
-  ArrowRight, ChevronRight, GripVertical, MessageSquarePlus, ListTodo, FileText, Target,
+  GripVertical, ListTodo, FileText, Target,
   Wallet, BookOpen, Clock, Check, X as XIcon, Mountain,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -44,105 +43,54 @@ function catColor(hex?: string) {
 
 /* ---------- Tarjeta de proyecto (arrastrable) ---------- */
 function ProjectCard({ project, onOpen }: { project: Project; onOpen: (id: string) => void }) {
-  const { projectCategories, projectTasks, updateProject, delProject } = useCerebro();
+  const { projectCategories, objetivosFor } = useCerebro();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: project.id });
-  const [open, setOpen] = useState(false);
 
   const cat = project.categoryId ? projectCategories.find(c => c.id === project.categoryId) : undefined;
-  const tasks = projectTasks(project.id);
-  const done = tasks.filter(t => t.done).length;
+  const objetivos = objetivosFor(project.id);
+  const done = objetivos.filter(o => o.stage === "done").length;
 
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
   return (
     <div ref={setNodeRef} style={style} className={cn("relative", isDragging && "z-50 opacity-70")}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <div
-            className="group flex cursor-pointer flex-col gap-1.5 rounded-xl border bg-card/80 p-3 shadow-sm backdrop-blur-sm transition-colors hover:border-primary/40"
-            onClick={() => setOpen(true)}
+      <div
+        className="group flex cursor-pointer flex-col gap-1.5 rounded-xl border border-border bg-card p-3 shadow-sm transition hover:border-primary/50 hover:shadow-md"
+        onClick={() => onOpen(project.id)}
+      >
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            onClick={(e) => e.stopPropagation()}
+            className="mt-0.5 shrink-0 cursor-grab touch-none text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing"
+            title="Arrastrar"
           >
-            <div className="flex items-start gap-2">
-              <button
-                type="button"
-                {...attributes}
-                {...listeners}
-                onClick={(e) => e.stopPropagation()}
-                className="mt-0.5 shrink-0 cursor-grab touch-none text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing"
-                title="Arrastrar"
-              >
-                <GripVertical className="h-3.5 w-3.5" />
-              </button>
-              <p className="min-w-0 flex-1 truncate text-sm font-semibold">{project.title}</p>
-            </div>
-            {project.description && (
-              <p className="line-clamp-2 pl-5 text-xs text-muted-foreground">{project.description}</p>
-            )}
-            <div className="flex flex-wrap items-center gap-1.5 pl-5">
-              {cat && (
-                <Badge variant="outline" className="h-5 gap-1 text-[10px]" style={{ borderColor: `${catColor(cat.color)}66`, background: `${catColor(cat.color)}1a`, color: catColor(cat.color) }}>
-                  {cat.name}
-                </Badge>
-              )}
-              {project.dueDate && (
-                <Badge variant="outline" className="h-5 gap-1 text-[10px] text-muted-foreground">
-                  <CalendarIcon className="h-2.5 w-2.5" />
-                  {format(new Date(project.dueDate), "d MMM", { locale: es })}
-                </Badge>
-              )}
-              {tasks.length > 0 && (
-                <span className="text-[10px] text-muted-foreground">{done}/{tasks.length} tareas</span>
-              )}
-            </div>
-          </div>
-        </PopoverTrigger>
-        <PopoverContent className="w-80 space-y-3" align="start" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-semibold">{project.title}</p>
-            <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={() => { delProject(project.id); setOpen(false); }}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-
-          <Textarea
-            placeholder="Descripción del proyecto…"
-            value={project.description ?? ""}
-            onChange={(e) => updateProject(project.id, { description: e.target.value })}
-            rows={3}
-            className="text-xs"
-          />
-
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={project.categoryId ?? "__none"} onValueChange={(v) => updateProject(project.id, { categoryId: v === "__none" ? undefined : v })}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Categoría" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none">Sin categoría</SelectItem>
-                {projectCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Input
-              type="date"
-              className="h-8 text-xs"
-              value={project.dueDate ? project.dueDate.slice(0, 10) : ""}
-              onChange={(e) => updateProject(project.id, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {(["inbox", ...PROJECT_KANBAN_STATUSES] as ProjectStatus[])
-              .filter(s => s !== project.status)
-              .map(s => (
-                <Button key={s} size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={() => updateProject(project.id, { status: s, archived: s === "done" })}>
-                  <ArrowRight className="h-3 w-3" /> {PROJECT_STATUS_LABEL[s]}
-                </Button>
-              ))}
-          </div>
-
-          <Button size="sm" className="w-full" onClick={() => { setOpen(false); onOpen(project.id); }}>
-            Abrir proyecto <ChevronRight className="h-3.5 w-3.5" />
-          </Button>
-        </PopoverContent>
-      </Popover>
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold">{project.title}</p>
+        </div>
+        {project.description && (
+          <p className="line-clamp-2 pl-5 text-xs text-muted-foreground">{project.description}</p>
+        )}
+        <div className="flex flex-wrap items-center gap-1.5 pl-5">
+          {cat && (
+            <Badge variant="outline" className="h-5 gap-1 text-[10px]" style={{ borderColor: `${catColor(cat.color)}66`, background: `${catColor(cat.color)}1a`, color: catColor(cat.color) }}>
+              {cat.name}
+            </Badge>
+          )}
+          {project.dueDate && (
+            <Badge variant="outline" className="h-5 gap-1 text-[10px] text-muted-foreground">
+              <CalendarIcon className="h-2.5 w-2.5" />
+              {format(new Date(project.dueDate), "d MMM yyyy", { locale: es })}
+            </Badge>
+          )}
+          {objetivos.length > 0 && (
+            <span className="text-[10px] text-muted-foreground">{done}/{objetivos.length} objetivos</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -154,8 +102,8 @@ function DropZone({ id, title, count, children, empty }: { id: string; title: st
     <div
       ref={setNodeRef}
       className={cn(
-        "flex min-h-[140px] flex-col gap-2 rounded-xl border-2 border-dashed p-2.5 transition-colors",
-        isOver ? "border-primary/60 bg-primary/5" : "border-border/60 bg-background/30",
+        "flex min-h-[140px] flex-col gap-2 rounded-xl border p-2.5 shadow-inner transition-colors",
+        isOver ? "border-primary/60 bg-primary/10" : "border-border bg-muted/70",
       )}
     >
       <div className="flex items-center justify-between px-0.5">
@@ -274,11 +222,9 @@ function StageColumn({ stageKey, label, count, children }: { stageKey: ProjectSt
   );
 }
 
-/* ---------- Pestaña: Resumen (fechas + cuenta atrás + actualizaciones) ---------- */
-function ResumenTab({ project }: { project: Project }) {
-  const { updateProject, projectUpdatesFor, addProjectUpdate, delProjectUpdate, dreams } = useCerebro();
-  const [newUpdate, setNewUpdate] = useState("");
-  const updates = projectUpdatesFor(project.id);
+/* ---------- Pestaña: Resumen (descripción + sueño, fechas y cuenta atrás) ---------- */
+function ResumenTab({ project, onClose }: { project: Project; onClose: () => void }) {
+  const { updateProject, delProject, dreams, projectCategories } = useCerebro();
 
   const countdown = project.dueDate ? differenceInCalendarDays(new Date(project.dueDate), new Date()) : null;
 
@@ -290,10 +236,44 @@ function ResumenTab({ project }: { project: Project }) {
           <Textarea
             value={project.description ?? ""}
             onChange={(e) => updateProject(project.id, { description: e.target.value })}
-            rows={4}
+            rows={8}
             placeholder="¿Cuál es el objetivo principal de este proyecto?"
           />
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Categoría</label>
+            <Select value={project.categoryId ?? "__none"} onValueChange={(v) => updateProject(project.id, { categoryId: v === "__none" ? undefined : v })}>
+              <SelectTrigger className="h-9"><SelectValue placeholder="Categoría" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">Sin categoría</SelectItem>
+                {projectCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Estado</label>
+            <Select value={project.status} onValueChange={(v) => updateProject(project.id, { status: v as ProjectStatus, archived: v === "done" })}>
+              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(["inbox", ...PROJECT_KANBAN_STATUSES] as ProjectStatus[]).map(s => (
+                  <SelectItem key={s} value={s}>{PROJECT_STATUS_LABEL[s]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-muted-foreground hover:text-rose-500"
+          onClick={() => { delProject(project.id); onClose(); }}
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Eliminar proyecto
+        </Button>
+      </div>
+
+      <div className="min-w-0 space-y-4">
         <div>
           <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Mountain className="h-3.5 w-3.5" />Sueño al que pertenece</label>
           <Select value={project.dreamId ?? "__none"} onValueChange={(v) => updateProject(project.id, { dreamId: v === "__none" ? undefined : v })}>
@@ -333,43 +313,6 @@ function ResumenTab({ project }: { project: Project }) {
               : <span>La fecha final pasó hace <strong>{Math.abs(countdown)}</strong> día{Math.abs(countdown) === 1 ? "" : "s"}.</span>}
           </div>
         )}
-      </div>
-
-      <div className="min-w-0 space-y-2">
-        <div className="mb-2 flex items-center gap-2">
-          <MessageSquarePlus className="h-4 w-4 text-primary" />
-          <p className="text-sm font-semibold">Actualizaciones</p>
-        </div>
-        <div className="flex gap-2">
-          <Textarea
-            value={newUpdate}
-            onChange={(e) => setNewUpdate(e.target.value)}
-            placeholder="Añade una actualización (commit)…"
-            rows={2}
-            className="text-xs"
-          />
-          <Button
-            size="sm"
-            className="h-auto shrink-0"
-            disabled={!newUpdate.trim()}
-            onClick={() => { addProjectUpdate(project.id, newUpdate.trim()); setNewUpdate(""); }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-        <div className="mt-3 space-y-2">
-          {updates.length === 0 ? <Empty msg="Sin actualizaciones todavía." /> : updates.map(u => (
-            <div key={u.id} className="group flex items-start gap-2 rounded-lg border bg-card/60 p-2 text-xs">
-              <div className="min-w-0 flex-1">
-                <p className="whitespace-pre-wrap break-words">{u.text}</p>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">{format(new Date(u.createdAt), "d MMM yyyy · HH:mm", { locale: es })}</p>
-              </div>
-              <button onClick={() => delProjectUpdate(u.id)} className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500">
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -696,6 +639,8 @@ function RetrospectivaTab({ project }: { project: Project }) {
 function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const { projects, updateProject } = useCerebro();
   const project = projects.find(p => p.id === projectId);
+  // Si el proyecto desaparece (p. ej. se acaba de eliminar), cerramos el pop-up.
+  useEffect(() => { if (!project) onClose(); }, [project, onClose]);
   if (!project) return null;
 
   return (
@@ -726,7 +671,7 @@ function ProjectModal({ projectId, onClose }: { projectId: string; onClose: () =
               </TabsList>
             </div>
 
-            <TabsContent value="resumen" className="mt-0"><ResumenTab project={project} /></TabsContent>
+            <TabsContent value="resumen" className="mt-0"><ResumenTab project={project} onClose={onClose} /></TabsContent>
             <TabsContent value="tareas" className="mt-0"><TareasTab project={project} /></TabsContent>
             <TabsContent value="objetivos" className="mt-0"><ObjetivosTab project={project} /></TabsContent>
             <TabsContent value="notas" className="mt-0"><NotasTab project={project} /></TabsContent>

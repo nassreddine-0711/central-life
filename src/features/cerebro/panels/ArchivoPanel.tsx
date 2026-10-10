@@ -114,11 +114,18 @@ function statusMeta(status: string) {
 /** Editor de nota: crea o edita una ApunteDoc (texto + enlaces + fotos + etiquetas). */
 export function ArchivoPanel() {
   const {
-    apunteFolders, apunteDocs, apunteAudios,
+    apunteFolders: apunteFoldersRaw, apunteDocs, apunteAudios, projects,
     addApunteFolder, renameApunteFolder, delApunteFolder, folderPath,
     moveApunteFolder, moveApunteDoc, delApunteDoc, updateApunteDoc,
     updateApunteAudio, delApunteAudio, linkApunteAudio, uploadApunteAudio, addApunteDoc,
   } = useCerebro();
+
+  // Una carpeta marcada como "de proyecto" cuyo proyecto ya no existe (huérfana) se trata como
+  // una carpeta normal: así se puede ver como tal, renombrar o borrar desde "Gestionar carpetas".
+  const apunteFolders = useMemo(() => {
+    const ids = new Set(projects.map(p => p.id));
+    return apunteFoldersRaw.map(f => (f.projectId && !ids.has(f.projectId) ? { ...f, projectId: undefined } : f));
+  }, [apunteFoldersRaw, projects]);
 
   const [node, setNode] = useState<string | null>(NODE_ROOT);
   const [search, setSearch] = useState("");

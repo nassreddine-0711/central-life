@@ -705,12 +705,12 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     }
     const folder = apunteFolders.find(f => f.id === id);
     if (!folder || (folder.parentId ?? null) === (newParentId ?? null)) return;
-    if (folder.projectId) {
+    if (folder.projectId && projects.some(p => p.id === folder.projectId)) {
       toast.error("La carpeta de un proyecto no se puede mover.");
       return;
     }
     setApunteFolders(prev => prev.map(f => f.id === id ? { ...f, parentId: newParentId } : f));
-  }, [apunteFolders]);
+  }, [apunteFolders, projects]);
 
   const moveApunteDoc: CerebroCtx["moveApunteDoc"] = useCallback((id, newFolderId) => {
     const doc = apunteDocs.find(d => d.id === id);
