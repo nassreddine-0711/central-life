@@ -49,7 +49,7 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
   return (
     <div className={cn(
       "group flex items-start gap-3 rounded-lg border bg-background/60 p-3 transition-all duration-300 hover:border-primary/40",
-      isEvent && "border-2 border-violet-600 bg-violet-500/30 hover:border-violet-600 dark:bg-violet-500/40",
+      isEvent && "border-2 border-violet-400 bg-violet-400/15 hover:border-violet-400 dark:bg-violet-400/20",
       task.done && "opacity-60",
       fading && "opacity-0 -translate-x-3 pointer-events-none",
     )}>
