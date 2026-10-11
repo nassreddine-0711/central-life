@@ -18,7 +18,7 @@ export interface LinkedRef {
   title: string;
 }
 
-export type RecurrenceFreq = "daily" | "weekly" | "monthly" | "yearly";
+export type RecurrenceFreq = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
 
 /** Sólo aplica a freq === "monthly": repetir el mismo día del mes (ej. "día 4 de cada
  *  mes", usando el día de la fecha de la tarea) o un día de la semana concreto dentro
@@ -365,6 +365,7 @@ export function nextRecurrence(rec: Recurrence, from: Date): Date {
     d.setMonth(d.getMonth() + 1);
     return d;
   }
+  if (rec.freq === "quarterly") { d.setMonth(d.getMonth() + 3); return d; }
   if (rec.freq === "yearly") { d.setFullYear(d.getFullYear() + 1); return d; }
   // weekly
   if (rec.weekdays && rec.weekdays.length > 0) {
@@ -405,6 +406,7 @@ export function describeRecurrence(rec: Recurrence): string {
     }
     return "Cada mes (mismo día)";
   }
+  if (rec.freq === "quarterly") return "Cada trimestre";
   if (rec.freq === "yearly") return "Cada año";
   if (rec.weekdays && rec.weekdays.length > 0) {
     return "Sem · " + rec.weekdays.slice().sort((a, b) => a - b).map(i => WEEKDAY_LABELS[i]).join(" ");

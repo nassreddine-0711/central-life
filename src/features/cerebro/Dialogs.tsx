@@ -371,6 +371,7 @@ function RecurrencePicker({ value, onChange }: { value?: Recurrence; onChange: (
                 <SelectItem value="daily">Cada día</SelectItem>
                 <SelectItem value="weekly">Cada semana</SelectItem>
                 <SelectItem value="monthly">Cada mes</SelectItem>
+                <SelectItem value="quarterly">Cada trimestre</SelectItem>
                 <SelectItem value="yearly">Cada año</SelectItem>
               </SelectContent>
             </Select>
