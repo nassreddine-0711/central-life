@@ -381,6 +381,22 @@ export function nextRecurrence(rec: Recurrence, from: Date): Date {
 
 const WEEK_N_LABEL: Record<number, string> = { 1: "1er", 2: "2º", 3: "3er", 4: "4º", [-1]: "último" };
 
+/** De una lista de tareas/eventos, deja solo la próxima aparición de cada serie recurrente
+ *  (la de fecha más próxima); las que no son recurrentes se quedan todas. Pensado para
+ *  vistas tipo "Prioridad" donde no tiene sentido ver las 24 próximas apariciones generadas
+ *  de un mismo evento repetido, solo la siguiente. */
+export function nextOccurrenceOnly<T extends { seriesId?: string; date?: string }>(items: T[]): T[] {
+  const bestBySeries = new Map<string, T>();
+  for (const it of items) {
+    if (!it.seriesId) continue;
+    const cur = bestBySeries.get(it.seriesId);
+    if (!cur || (it.date && (!cur.date || new Date(it.date).getTime() < new Date(cur.date).getTime()))) {
+      bestBySeries.set(it.seriesId, it);
+    }
+  }
+  return items.filter(it => !it.seriesId || bestBySeries.get(it.seriesId) === it);
+}
+
 export function describeRecurrence(rec: Recurrence): string {
   if (rec.freq === "daily") return "Cada día";
   if (rec.freq === "monthly") {

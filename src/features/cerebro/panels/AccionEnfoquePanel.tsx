@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useState } from "react";
 import { useCerebro } from "../CerebroContext";
 import { Section, Empty, TaskList, TaskRow, WeekView, MonthView } from "../TaskComponents";
-import { PRIO_LABEL } from "../types";
+import { PRIO_LABEL, nextOccurrenceOnly } from "../types";
 import { HistorialView } from "../HistorialView";
 import { RutinasPanel } from "./RutinasPanel";
 import { ProjectsPanel } from "./ProjectsPanel";
@@ -30,11 +30,13 @@ function FocoPanel() {
   // "bloqueada" (caso excepcional y manual, sin fecha propia, que también se gestiona aquí).
   const overdue = tasks.filter(t => !t.done && ((t.date && isBefore(new Date(t.date), startOfDay(new Date()))) || t.stage === "blocked"));
 
-  const pending = tasks.filter(t => !t.done);
+  // En "Prioridad" no tiene sentido ver las decenas de apariciones futuras generadas de un
+  // mismo evento/tarea recurrente: solo se muestra la próxima de cada serie.
+  const pendingForPrio = nextOccurrenceOnly(tasks.filter(t => !t.done));
   const byPrio = {
-    high: pending.filter(t => t.priority === "high"),
-    med: pending.filter(t => t.priority === "med"),
-    low: pending.filter(t => t.priority === "low"),
+    high: pendingForPrio.filter(t => t.priority === "high"),
+    med: pendingForPrio.filter(t => t.priority === "med"),
+    low: pendingForPrio.filter(t => t.priority === "low"),
   };
 
   const completed = tasks.filter(t => t.done);
