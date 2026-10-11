@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { format, isSameDay, isToday, eachDayOfInterval, startOfDay, addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, addMonths, subMonths, addWeeks, subWeeks, isSameWeek } from "date-fns";
 import { es } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Flag, Trash2, Check, Award, Repeat, Pencil, Plus, Zap, Brain, X as XIcon, FolderKanban } from "lucide-react";
+import { ChevronLeft, ChevronRight, Flag, Trash2, Check, Award, Repeat, Pencil, Plus, Zap, Brain, X as XIcon, FolderKanban, StickyNote, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -31,15 +31,17 @@ export function Empty({ msg }: { msg: string }) {
 
 export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }: { task: Task; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; compact?: boolean; fading?: boolean; }) {
   const { milestones } = useKnowledge();
-  const { openTaskDialog, projects } = useCerebro();
+  const { openTaskDialog, projects, convertTaskToNote } = useCerebro();
   const [expanded, setExpanded] = useState(false);
   const [lightbox, setLightbox] = useState(false);
   const milestone = task.linkedMilestoneId ? milestones.find(m => m.id === task.linkedMilestoneId) : undefined;
   const project = task.projectId ? projects.find(p => p.id === task.projectId) : undefined;
   const hasExtras = !!(task.description || task.photo);
+  const isEvent = task.kind === "event";
   return (
     <div className={cn(
       "group flex items-start gap-3 rounded-lg border bg-background/60 p-3 transition-all duration-300 hover:border-primary/40",
+      isEvent && "border-violet-500/40 bg-violet-500/[0.07] hover:border-violet-500/60",
       task.done && "opacity-60",
       fading && "opacity-0 -translate-x-3 pointer-events-none",
     )}>
@@ -60,6 +62,7 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
               />
             </button>
           )}
+          {isEvent && <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />}
           <p
             className={cn(
               "flex-1 text-sm font-medium cursor-pointer transition-all",
@@ -144,14 +147,24 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
         )}
       </div>
       {task.inbox && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onUpdate(task.id, { inbox: false, date: new Date().toISOString() })}>
-              <Check className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Clasificar para hoy</TooltipContent>
-        </Tooltip>
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onUpdate(task.id, { inbox: false, date: new Date().toISOString() })}>
+                <Check className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Clasificar para hoy</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => convertTaskToNote(task.id)}>
+                <StickyNote className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Pasar a nota (Archivo)</TooltipContent>
+          </Tooltip>
+        </>
       )}
       <Button
         size="icon" variant="ghost"

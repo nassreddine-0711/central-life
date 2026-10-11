@@ -32,6 +32,8 @@ interface CerebroCtx {
   toggleTask: (id: string) => void;
   delTask: (id: string) => void;
   updateTask: (id: string, patch: Partial<Task>) => void;
+  /** Pasa una captura rápida del Inbox a una nota del Archivo (carpeta raíz) y borra la tarea. */
+  convertTaskToNote: (id: string) => void;
 
   addNote: (n: Note) => void;
   updateNote: (id: string, patch: Partial<Note>) => void;
@@ -803,6 +805,14 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     return d;
   }, []);
 
+  const convertTaskToNote: CerebroCtx["convertTaskToNote"] = useCallback((id) => {
+    const t = tasks.find(x => x.id === id);
+    if (!t) return;
+    addApunteDoc({ title: t.title, content: t.description ?? "", folderId: null, photos: t.photo ? [t.photo] : [] });
+    delTask(id);
+    toast.success("Pasada a nota", { description: t.title });
+  }, [tasks, addApunteDoc, delTask]);
+
   const updateApunteDoc = useCallback((id: string, patch: Partial<ApunteDoc>) => {
     setApunteDocs(prev => prev.map(d => d.id === id ? { ...d, ...patch, updatedAt: new Date().toISOString() } : d));
   }, []);
@@ -960,7 +970,7 @@ ${audio.summary || audio.transcript || ""}
 
   const value = useMemo<CerebroCtx>(() => ({
     tasks, notes, noteCats, projects, projectCategories, projectUpdates, fadingIds,
-    addTask, toggleTask, delTask, updateTask,
+    addTask, toggleTask, delTask, updateTask, convertTaskToNote,
     addNote, updateNote, delNote, addNoteCategory, deleteNoteCategory,
     addProject, updateProject, delProject, moveProjectStatus, projectTasks, projectProgress, moveTaskStage, projectsByDreamId,
     addProjectCategory, updateProjectCategory, delProjectCategory,
@@ -986,7 +996,7 @@ ${audio.summary || audio.transcript || ""}
     _setQuickOpen: setQuickOpen,
   }), [
     tasks, notes, noteCats, projects, projectCategories, projectUpdates, fadingIds,
-    addTask, toggleTask, delTask, updateTask,
+    addTask, toggleTask, delTask, updateTask, convertTaskToNote,
     addNote, updateNote, delNote, addNoteCategory, deleteNoteCategory,
     addProject, updateProject, delProject, moveProjectStatus, projectTasks, projectProgress, moveTaskStage, projectsByDreamId,
     addProjectCategory, updateProjectCategory, delProjectCategory,

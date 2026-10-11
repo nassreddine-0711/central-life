@@ -17,7 +17,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import {
   Category, Priority, Complexity, DayPart, DAY_PART_LABEL, DAY_PART_ORDER, CATEGORIES, DEFAULT_NOTE_CAT, uid,
-  Recurrence, RecurrenceFreq, WEEKDAY_LABELS, WEEKDAY_FULL, describeRecurrence,
+  Recurrence, RecurrenceFreq, MonthlyMode, WEEKDAY_LABELS, WEEKDAY_FULL, describeRecurrence,
+  TaskKind, TASK_KIND_LABEL,
   ProjectCategory, PROJECT_CAT_PALETTE,
 } from "./types";
 import { useCerebro } from "./CerebroContext";
@@ -29,6 +30,7 @@ export function TaskDialog() {
   const editing = state.editId ? tasks.find(t => t.id === state.editId) : undefined;
   const isEdit = !!editing;
 
+  const [kind, setKind] = useState<TaskKind>("task");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [photo, setPhoto] = useState<string | undefined>(undefined);
@@ -43,6 +45,7 @@ export function TaskDialog() {
   useEffect(() => {
     if (state.open) {
       if (editing) {
+        setKind(editing.kind ?? "task");
         setTitle(editing.title);
         setDescription(editing.description ?? "");
         setPhoto(editing.photo);
@@ -54,6 +57,7 @@ export function TaskDialog() {
         setRecurrence(editing.recurrence);
         setProjectId(editing.projectId);
       } else {
+        setKind("task");
         setTitle(state.defaultTitle ?? "");
         setDescription("");
         setPhoto(undefined);
@@ -83,11 +87,15 @@ export function TaskDialog() {
     if (!title.trim()) return;
     if (isEdit && editing) {
       updateTask(editing.id, {
+        kind,
         title: title.trim(),
         description: description.trim() || undefined,
         photo: photo || undefined,
         category, priority, complexity, dayPart,
         date: date?.toISOString(),
+        // Si estaba en el Inbox y ahora le ponemos fecha, sale del Inbox:
+        // es la forma de "convertir" una captura rápida en una tarea con todos sus datos.
+        inbox: date ? false : editing.inbox,
         recurrence,
         projectId,
         // "Bloqueada" y "Terminada" son manuales/excepcionales: se conservan si el
@@ -100,6 +108,7 @@ export function TaskDialog() {
       });
     } else {
       addTask({
+        kind,
         title: title.trim(),
         description: description.trim() || undefined,
         photo: photo || undefined,
@@ -118,9 +127,17 @@ export function TaskDialog() {
   return (
     <Dialog open={state.open} onOpenChange={_setTaskDialogOpen}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>{isEdit ? "Editar tarea" : "Nueva tarea"}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{isEdit ? `Editar ${kind === "event" ? "evento" : "tarea"}` : `Nuevo${kind === "event" ? "" : "a"} ${kind === "event" ? "evento" : "tarea"}`}</DialogTitle>
+        </DialogHeader>
         <div className="space-y-3">
-          <Input placeholder="Título de la tarea" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
+          <Tabs value={kind} onValueChange={(v) => setKind(v as TaskKind)}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="task"><ListTodo className="mr-2 h-4 w-4" />{TASK_KIND_LABEL.task}</TabsTrigger>
+              <TabsTrigger value="event"><CalendarIcon className="mr-2 h-4 w-4" />{TASK_KIND_LABEL.event}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Input placeholder={kind === "event" ? "Título del evento" : "Título de la tarea"} value={title} onChange={e => setTitle(e.target.value)} autoFocus />
           <Textarea
             placeholder="Descripción (opcional)…"
             value={description}
@@ -276,7 +293,7 @@ export function TaskDialog() {
 
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => _setTaskDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={submit} disabled={!title.trim()}>{isEdit ? "Guardar" : "Crear"}</Button>
+            <Button onClick={submit} disabled={!title.trim()}>{isEdit ? "Guardar" : (kind === "event" ? "Crear evento" : "Crear tarea")}</Button>
           </div>
         </div>
       </DialogContent>
@@ -285,15 +302,29 @@ export function TaskDialog() {
 }
 
 /* ---------- Recurrence Picker ---------- */
+const MONTH_WEEK_N_OPTIONS: { value: number; label: string }[] = [
+  { value: 1, label: "1ª semana" },
+  { value: 2, label: "2ª semana" },
+  { value: 3, label: "3ª semana" },
+  { value: 4, label: "4ª semana" },
+  { value: -1, label: "Última" },
+];
+
 function RecurrencePicker({ value, onChange }: { value?: Recurrence; onChange: (r?: Recurrence) => void }) {
   const [open, setOpen] = useState(false);
   const [freq, setFreq] = useState<RecurrenceFreq>(value?.freq ?? "weekly");
   const [weekdays, setWeekdays] = useState<number[]>(value?.weekdays ?? []);
+  const [monthlyMode, setMonthlyMode] = useState<MonthlyMode>(value?.monthlyMode ?? "date");
+  const [monthlyWeekday, setMonthlyWeekday] = useState<number>(value?.monthlyWeekday ?? 6);
+  const [monthlyWeekN, setMonthlyWeekN] = useState<number>(value?.monthlyWeekN ?? -1);
 
   useEffect(() => {
     if (open) {
       setFreq(value?.freq ?? "weekly");
       setWeekdays(value?.weekdays ?? []);
+      setMonthlyMode(value?.monthlyMode ?? "date");
+      setMonthlyWeekday(value?.monthlyWeekday ?? 6);
+      setMonthlyWeekN(value?.monthlyWeekN ?? -1);
     }
   }, [open, value]);
 
@@ -303,6 +334,13 @@ function RecurrencePicker({ value, onChange }: { value?: Recurrence; onChange: (
   const apply = () => {
     const rec: Recurrence = { freq };
     if (freq === "weekly" && weekdays.length > 0) rec.weekdays = weekdays;
+    if (freq === "monthly") {
+      rec.monthlyMode = monthlyMode;
+      if (monthlyMode === "weekday") {
+        rec.monthlyWeekday = monthlyWeekday;
+        rec.monthlyWeekN = monthlyWeekN;
+      }
+    }
     onChange(rec);
     setOpen(false);
   };
@@ -329,6 +367,65 @@ function RecurrencePicker({ value, onChange }: { value?: Recurrence; onChange: (
               </SelectContent>
             </Select>
           </div>
+
+          {freq === "monthly" && (
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">¿Qué día del mes?</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMonthlyMode("date")}
+                  className={cn(
+                    "rounded-lg border px-2 py-2 text-center text-xs font-medium transition-all",
+                    monthlyMode === "date" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40"
+                  )}
+                >
+                  Mismo número
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMonthlyMode("weekday")}
+                  className={cn(
+                    "rounded-lg border px-2 py-2 text-center text-xs font-medium transition-all",
+                    monthlyMode === "weekday" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40"
+                  )}
+                >
+                  Día de la semana
+                </button>
+              </div>
+              {monthlyMode === "date" ? (
+                <p className="text-[10px] text-muted-foreground">
+                  Se repite el mismo día del mes que tenga la fecha de la tarea (p. ej. cada día 4).
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="flex gap-1">
+                    {WEEKDAY_LABELS.map((lbl, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setMonthlyWeekday(i)}
+                        title={WEEKDAY_FULL[i]}
+                        className={cn(
+                          "h-8 w-8 rounded-md border text-xs font-semibold transition-colors",
+                          monthlyWeekday === i ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-accent"
+                        )}
+                      >{lbl}</button>
+                    ))}
+                  </div>
+                  <Select value={String(monthlyWeekN)} onValueChange={v => setMonthlyWeekN(Number(v))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MONTH_WEEK_N_OPTIONS.map(o => <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground">
+                    Ej.: "Última" + Dom = cada último domingo del mes.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {freq === "weekly" && (
             <div className="space-y-1.5">

@@ -20,13 +20,30 @@ export interface LinkedRef {
 
 export type RecurrenceFreq = "daily" | "weekly" | "monthly" | "yearly";
 
+/** Sólo aplica a freq === "monthly": repetir el mismo día del mes (ej. "día 4 de cada
+ *  mes", usando el día de la fecha de la tarea) o un día de la semana concreto dentro
+ *  del mes (ej. "cada último domingo del mes"). */
+export type MonthlyMode = "date" | "weekday";
+
 export interface Recurrence {
   freq: RecurrenceFreq;
   /** Para freq === "weekly": 0=Lun … 6=Dom. Vacío = mismo día de la semana. */
   weekdays?: number[];
+  /** Para freq === "monthly". Por defecto "date". */
+  monthlyMode?: MonthlyMode;
+  /** Para monthlyMode === "weekday": 0=Lun … 6=Dom. */
+  monthlyWeekday?: number;
+  /** Para monthlyMode === "weekday": 1,2,3,4 = primera/segunda/tercera/cuarta semana, -1 = última. */
+  monthlyWeekN?: number;
 }
 
 // NEW: franja horaria del día en la que se agenda la tarea (vista mensual)
+export type TaskKind = "task" | "event";
+export const TASK_KIND_LABEL: Record<TaskKind, string> = {
+  task: "Tarea",
+  event: "Evento",
+};
+
 export type DayPart = "morning" | "midday" | "afternoon" | "evening";
 export const DAY_PART_LABEL: Record<DayPart, string> = {
   morning: "Mañana",
@@ -38,6 +55,8 @@ export const DAY_PART_ORDER: DayPart[] = ["morning", "midday", "afternoon", "eve
 
 export interface Task {
   id: string;
+  /** "task" (por defecto) o "event": mismos campos, sólo cambia cómo se pinta. */
+  kind?: TaskKind;
   title: string;
   description?: string;
   photo?: string;
@@ -291,11 +310,35 @@ export const DREAMS_CONFIG_KEY = "cerebro.dreamsConfig.v1";
 export const WEEKDAY_LABELS = ["L", "M", "X", "J", "V", "S", "D"] as const;
 export const WEEKDAY_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"] as const;
 
+/** N-ésima ocurrencia de `weekday` (0=Lun … 6=Dom) en el mes `month` (0-indexado) de
+ *  `year`. `n` = 1,2,3,4 para la primera/segunda/tercera/cuarta semana, -1 = la última. */
+function nthWeekdayOfMonth(year: number, month: number, weekday: number, n: number): Date {
+  const jsWeekday = (weekday + 1) % 7; // nuestro 0=Lun … a JS 0=Dom
+  if (n === -1) {
+    const last = new Date(year, month + 1, 0);
+    const diff = (last.getDay() - jsWeekday + 7) % 7;
+    last.setDate(last.getDate() - diff);
+    return last;
+  }
+  const first = new Date(year, month, 1);
+  const diff = (jsWeekday - first.getDay() + 7) % 7;
+  return new Date(year, month, 1 + diff + (n - 1) * 7);
+}
+
 /** Próxima fecha tras `from` siguiendo la recurrencia. Devuelve ISO string. */
 export function nextRecurrence(rec: Recurrence, from: Date): Date {
   const d = new Date(from);
   if (rec.freq === "daily") { d.setDate(d.getDate() + 1); return d; }
-  if (rec.freq === "monthly") { d.setMonth(d.getMonth() + 1); return d; }
+  if (rec.freq === "monthly") {
+    if (rec.monthlyMode === "weekday" && rec.monthlyWeekday !== undefined && rec.monthlyWeekN !== undefined) {
+      const y = d.getFullYear(), m = d.getMonth() + 1;
+      const cand = nthWeekdayOfMonth(y, m, rec.monthlyWeekday, rec.monthlyWeekN);
+      cand.setHours(d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
+      return cand;
+    }
+    d.setMonth(d.getMonth() + 1);
+    return d;
+  }
   if (rec.freq === "yearly") { d.setFullYear(d.getFullYear() + 1); return d; }
   // weekly
   if (rec.weekdays && rec.weekdays.length > 0) {
@@ -310,9 +353,16 @@ export function nextRecurrence(rec: Recurrence, from: Date): Date {
   return d;
 }
 
+const WEEK_N_LABEL: Record<number, string> = { 1: "1er", 2: "2º", 3: "3er", 4: "4º", [-1]: "último" };
+
 export function describeRecurrence(rec: Recurrence): string {
   if (rec.freq === "daily") return "Cada día";
-  if (rec.freq === "monthly") return "Cada mes";
+  if (rec.freq === "monthly") {
+    if (rec.monthlyMode === "weekday" && rec.monthlyWeekday !== undefined && rec.monthlyWeekN !== undefined) {
+      return `Cada mes · ${WEEK_N_LABEL[rec.monthlyWeekN] ?? ""} ${WEEKDAY_FULL[rec.monthlyWeekday]}`;
+    }
+    return "Cada mes (mismo día)";
+  }
   if (rec.freq === "yearly") return "Cada año";
   if (rec.weekdays && rec.weekdays.length > 0) {
     return "Sem · " + rec.weekdays.slice().sort((a, b) => a - b).map(i => WEEKDAY_LABELS[i]).join(" ");
