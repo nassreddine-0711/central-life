@@ -74,7 +74,9 @@ function DocTile({ doc, linkedCount, onOpen }: { doc: ApunteDoc; linkedCount: nu
       )}
     >
       {cover && (
-        <img src={cover} alt="" className="h-32 w-full object-cover" />
+        <div className="flex h-32 w-full items-center justify-center bg-muted/40">
+          <img src={cover} alt="" className="h-full w-full object-contain" />
+        </div>
       )}
       <div className="p-3">
         <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
