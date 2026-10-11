@@ -56,10 +56,11 @@ function FolderTile({ folder, count, onOpen }: { folder: ApunteFolder; count: nu
   );
 }
 
-/** Tarjeta de nota: arrastrable (no recibe nada encima). */
+/** Tarjeta de nota: arrastrable (no recibe nada encima). Si tiene foto, se ve ya aquí fuera, sin entrar. */
 function DocTile({ doc, linkedCount, onOpen }: { doc: ApunteDoc; linkedCount: number; onOpen: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `doc:${doc.id}` });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+  const cover = doc.photos[0];
   return (
     <button
       ref={setNodeRef}
@@ -68,22 +69,27 @@ function DocTile({ doc, linkedCount, onOpen }: { doc: ApunteDoc; linkedCount: nu
       {...attributes}
       onClick={onOpen}
       className={cn(
-        "rounded-xl border bg-card/60 p-3 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md",
+        "overflow-hidden rounded-xl border bg-card/60 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md",
         isDragging && "z-50 opacity-60",
       )}
     >
-      <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
-        <FileText className="h-4 w-4 shrink-0 text-primary" />
-        {doc.title}
-      </p>
-      {doc.content && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{doc.content}</p>}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {doc.tags.slice(0, 3).map(t => (
-          <Badge key={t} variant="outline" className="h-4.5 gap-0.5 text-[10px]"><Tag className="h-2.5 w-2.5" />{t}</Badge>
-        ))}
-        {doc.links.length > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><Link2 className="h-3 w-3" />{doc.links.length}</span>}
-        {doc.photos.length > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><ImageIcon className="h-3 w-3" />{doc.photos.length}</span>}
-        {linkedCount > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><Mic className="h-3 w-3" />{linkedCount}</span>}
+      {cover && (
+        <img src={cover} alt="" className="h-32 w-full object-cover" />
+      )}
+      <div className="p-3">
+        <p className="flex items-center gap-1.5 truncate text-sm font-semibold text-foreground">
+          <FileText className="h-4 w-4 shrink-0 text-primary" />
+          {doc.title}
+        </p>
+        {doc.content && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{doc.content}</p>}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {doc.tags.slice(0, 3).map(t => (
+            <Badge key={t} variant="outline" className="h-4.5 gap-0.5 text-[10px]"><Tag className="h-2.5 w-2.5" />{t}</Badge>
+          ))}
+          {doc.links.length > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><Link2 className="h-3 w-3" />{doc.links.length}</span>}
+          {doc.photos.length > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><ImageIcon className="h-3 w-3" />{doc.photos.length}</span>}
+          {linkedCount > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><Mic className="h-3 w-3" />{linkedCount}</span>}
+        </div>
       </div>
     </button>
   );
@@ -232,6 +238,15 @@ export function ArchivoPanel() {
     setNewFolderOpen(false);
   };
 
+  const deleteCurrentFolder = () => {
+    if (!currentFolder) return;
+    if (!confirm(`¿Eliminar la carpeta "${currentFolder.name}"? Se borrará también su contenido (subcarpetas y notas).`)) return;
+    const parentId = currentFolder.parentId ?? null;
+    delApunteFolder(currentFolder.id);
+    setNode(parentId);
+    setSearch("");
+  };
+
   const openNewNote = () => {
     setEditingNoteId(null);
     setNoteDialogOpen(true);
@@ -338,6 +353,11 @@ export function ArchivoPanel() {
               {folderDocs.length > 0 && (
                 <Button size="sm" variant="ghost" onClick={() => setManageDocsOpen(true)}>
                   <Pencil className="h-4 w-4" /> Gestionar notas
+                </Button>
+              )}
+              {currentFolder && !isFixedFolder && (
+                <Button size="sm" variant="ghost" className="text-rose-500 hover:text-rose-500" onClick={deleteCurrentFolder}>
+                  <Trash2 className="h-4 w-4" /> Eliminar esta carpeta
                 </Button>
               )}
             </div>
