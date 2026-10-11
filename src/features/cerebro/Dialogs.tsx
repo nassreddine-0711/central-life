@@ -342,7 +342,7 @@ function RecurrencePicker({ value, onChange }: { value?: Recurrence; onChange: (
   const apply = () => {
     const rec: Recurrence = { freq };
     if (freq === "weekly" && weekdays.length > 0) rec.weekdays = weekdays;
-    if (freq === "monthly") {
+    if (freq === "monthly" || freq === "quarterly") {
       rec.monthlyMode = monthlyMode;
       if (monthlyMode === "weekday") {
         rec.monthlyWeekday = monthlyWeekday;
@@ -377,9 +377,11 @@ function RecurrencePicker({ value, onChange }: { value?: Recurrence; onChange: (
             </Select>
           </div>
 
-          {freq === "monthly" && (
+          {(freq === "monthly" || freq === "quarterly") && (
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">¿Qué día del mes?</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {freq === "quarterly" ? "¿Qué día del trimestre?" : "¿Qué día del mes?"}
+              </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -404,7 +406,9 @@ function RecurrencePicker({ value, onChange }: { value?: Recurrence; onChange: (
               </div>
               {monthlyMode === "date" ? (
                 <p className="text-[10px] text-muted-foreground">
-                  Se repite el mismo día del mes que tenga la fecha de la tarea (p. ej. cada día 4).
+                  {freq === "quarterly"
+                    ? "Se repite cada 3 meses, el mismo día que tenga la fecha de la tarea."
+                    : "Se repite el mismo día del mes que tenga la fecha de la tarea (p. ej. cada día 4)."}
                 </p>
               ) : (
                 <div className="space-y-1.5">
@@ -429,7 +433,9 @@ function RecurrencePicker({ value, onChange }: { value?: Recurrence; onChange: (
                     </SelectContent>
                   </Select>
                   <p className="text-[10px] text-muted-foreground">
-                    Ej.: "Última" + Dom = cada último domingo del mes.
+                    {freq === "quarterly"
+                      ? 'Ej.: "Última" + Dom = cada último domingo del último mes de cada trimestre (marzo, junio, septiembre, diciembre).'
+                      : 'Ej.: "Última" + Dom = cada último domingo del mes.'}
                   </p>
                 </div>
               )}

@@ -349,6 +349,14 @@ export function snapToRecurrence(rec: Recurrence, from: Date): Date {
     cand.setHours(from.getHours(), from.getMinutes(), from.getSeconds(), from.getMilliseconds());
     return cand;
   }
+  if (rec.freq === "quarterly" && rec.monthlyMode === "weekday" && rec.monthlyWeekday !== undefined && rec.monthlyWeekN !== undefined) {
+    const y = from.getFullYear();
+    const qEndMonth = Math.floor(from.getMonth() / 3) * 3 + 2; // último mes del trimestre en curso
+    let cand = nthWeekdayOfMonth(y, qEndMonth, rec.monthlyWeekday, rec.monthlyWeekN);
+    if (dayStart(cand) < dayStart(from)) cand = nthWeekdayOfMonth(y, qEndMonth + 3, rec.monthlyWeekday, rec.monthlyWeekN);
+    cand.setHours(from.getHours(), from.getMinutes(), from.getSeconds(), from.getMilliseconds());
+    return cand;
+  }
   return from;
 }
 
@@ -365,7 +373,18 @@ export function nextRecurrence(rec: Recurrence, from: Date): Date {
     d.setMonth(d.getMonth() + 1);
     return d;
   }
-  if (rec.freq === "quarterly") { d.setMonth(d.getMonth() + 3); return d; }
+  if (rec.freq === "quarterly") {
+    if (rec.monthlyMode === "weekday" && rec.monthlyWeekday !== undefined && rec.monthlyWeekN !== undefined) {
+      const y = d.getFullYear();
+      const qEndMonth = Math.floor(d.getMonth() / 3) * 3 + 2; // último mes del trimestre en curso
+      let cand = nthWeekdayOfMonth(y, qEndMonth, rec.monthlyWeekday, rec.monthlyWeekN);
+      if (cand <= d) cand = nthWeekdayOfMonth(y, qEndMonth + 3, rec.monthlyWeekday, rec.monthlyWeekN);
+      cand.setHours(d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
+      return cand;
+    }
+    d.setMonth(d.getMonth() + 3);
+    return d;
+  }
   if (rec.freq === "yearly") { d.setFullYear(d.getFullYear() + 1); return d; }
   // weekly
   if (rec.weekdays && rec.weekdays.length > 0) {
@@ -406,7 +425,12 @@ export function describeRecurrence(rec: Recurrence): string {
     }
     return "Cada mes (mismo día)";
   }
-  if (rec.freq === "quarterly") return "Cada trimestre";
+  if (rec.freq === "quarterly") {
+    if (rec.monthlyMode === "weekday" && rec.monthlyWeekday !== undefined && rec.monthlyWeekN !== undefined) {
+      return `Cada trimestre · ${WEEK_N_LABEL[rec.monthlyWeekN] ?? ""} ${WEEKDAY_FULL[rec.monthlyWeekday]}`;
+    }
+    return "Cada trimestre (mismo día)";
+  }
   if (rec.freq === "yearly") return "Cada año";
   if (rec.weekdays && rec.weekdays.length > 0) {
     return "Sem · " + rec.weekdays.slice().sort((a, b) => a - b).map(i => WEEKDAY_LABELS[i]).join(" ");
