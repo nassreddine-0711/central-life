@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { subMonths, parseISO, startOfDay, subDays, format } from "date-fns";
 import {
-  Task, Note, LinkedRef, Category, Priority, DayPart, Project, ProjectStage, ProjectStatus,
+  Task, Note, LinkedRef, Category, Priority, DayPart, Recurrence, Project, ProjectStage, ProjectStatus,
   ProjectCategory, ProjectUpdate,
   ApunteFolder, ApunteDoc, ApunteAudio, ApunteLink,
   Objetivo, RetroEntry, RetroResult, ProjectExpense, ProjectTimeSlot, ProjectTimeEntry,
@@ -32,8 +32,9 @@ interface CerebroCtx {
   toggleTask: (id: string) => void;
   delTask: (id: string) => void;
   updateTask: (id: string, patch: Partial<Task>) => void;
-  /** Pasa una captura rápida del Inbox a una nota del Archivo (carpeta raíz) y borra la tarea. */
-  convertTaskToNote: (id: string) => void;
+  /** Pasa una captura rápida del Inbox a una nota del Archivo (en la carpeta elegida,
+   *  null = raíz) y borra la tarea. */
+  convertTaskToNote: (id: string, folderId: string | null) => void;
 
   addNote: (n: Note) => void;
   updateNote: (id: string, patch: Partial<Note>) => void;
@@ -278,10 +279,44 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, foldersReady]);
 
+  // Recurrencia tipo "evento de calendario": al poner una tarea/evento como recurrente se
+  // generan de golpe sus próximas apariciones futuras (no hace falta completar la actual
+  // para que aparezca la siguiente), y un efecto aparte las va reponiendo para que la serie
+  // nunca se quede sin apariciones por delante.
+  const SERIES_MAX_COUNT = 24;
+  const SERIES_HORIZON_MONTHS = 18;
+  const SERIES_TOPUP_MS = 60 * 24 * 60 * 60 * 1000; // 60 días
+
+  const buildSeriesTasks = useCallback((anchor: Task, rec: Recurrence, seriesId: string): Task[] => {
+    if (!anchor.date) return [];
+    const limit = new Date(anchor.date);
+    limit.setMonth(limit.getMonth() + SERIES_HORIZON_MONTHS);
+    const out: Task[] = [];
+    let cur = new Date(anchor.date);
+    for (let i = 0; i < SERIES_MAX_COUNT; i++) {
+      cur = nextRecurrence(rec, cur);
+      if (cur > limit) break;
+      out.push({
+        ...anchor,
+        id: uid(),
+        date: cur.toISOString(),
+        done: false,
+        completedAt: undefined,
+        createdAt: new Date().toISOString(),
+        inbox: false,
+        seriesId,
+        recurrence: rec,
+      });
+    }
+    return out;
+  }, []);
+
   const addTask: CerebroCtx["addTask"] = useCallback((partial) => {
+    const id = uid();
     const t: Task = {
-      id: uid(),
+      id,
       title: partial.title,
+      kind: partial.kind,
       description: partial.description,
       photo: partial.photo,
       category: partial.category ?? "Otros",
@@ -294,6 +329,7 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       linkedNoteId: partial.linkedNoteId,
       linkedMilestoneId: partial.linkedMilestoneId,
       recurrence: partial.recurrence,
+      seriesId: partial.recurrence ? id : undefined,
       projectId: partial.projectId,
       // Kanban del proyecto: sin fecha se queda "sin empezar"; si ya trae una fecha
       // asignada (p. ej. creada desde el inbox) pasa directamente a "en curso".
@@ -301,9 +337,33 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       // del kanban) siempre tiene prioridad.
       stage: partial.projectId ? (partial.stage ?? (partial.date ? "doing" : "todo")) : undefined,
     };
-    setTasks(prev => [t, ...prev]);
+    setTasks(prev => {
+      const extra = t.recurrence ? buildSeriesTasks(t, t.recurrence, id) : [];
+      return [t, ...extra, ...prev];
+    });
     return t;
-  }, []);
+  }, [buildSeriesTasks]);
+
+  // Repone apariciones futuras de cada serie recurrente cuando quedan pocas por delante,
+  // para que nunca se "acabe" aunque el usuario no vuelva a tocar la tarea/evento.
+  useEffect(() => {
+    const lastBySeries = new Map<string, Task>();
+    for (const t of tasks) {
+      if (!t.seriesId || !t.recurrence || !t.date) continue;
+      const cur = lastBySeries.get(t.seriesId);
+      if (!cur || new Date(t.date).getTime() > new Date(cur.date!).getTime()) lastBySeries.set(t.seriesId, t);
+    }
+    const now = Date.now();
+    const additions: Task[] = [];
+    for (const [seriesId, last] of lastBySeries) {
+      if (!last.date || !last.recurrence) continue;
+      if (new Date(last.date).getTime() - now < SERIES_TOPUP_MS) {
+        additions.push(...buildSeriesTasks(last, last.recurrence, seriesId));
+      }
+    }
+    if (additions.length > 0) setTasks(prev => [...additions, ...prev]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, buildSeriesTasks]);
 
   const toggleTask = useCallback((id: string) => {
     setTasks(prev => {
@@ -312,27 +372,9 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
       if (!t.done) {
         setFadingIds(s => { const n = new Set(s); n.add(id); return n; });
         window.setTimeout(() => {
-          setTasks(p => {
-            const updated = p.map(x => x.id === id
-              ? { ...x, done: true, completedAt: new Date().toISOString(), stage: x.projectId ? "done" as const : x.stage }
-              : x);
-            // Spawn next occurrence if recurring
-            if (t.recurrence) {
-              const base = t.date ? new Date(t.date) : new Date();
-              const next = nextRecurrence(t.recurrence, base);
-              const cloned: Task = {
-                ...t,
-                id: uid(),
-                done: false,
-                completedAt: undefined,
-                createdAt: new Date().toISOString(),
-                date: next.toISOString(),
-                inbox: false,
-              };
-              return [cloned, ...updated];
-            }
-            return updated;
-          });
+          setTasks(p => p.map(x => x.id === id
+            ? { ...x, done: true, completedAt: new Date().toISOString(), stage: x.projectId ? "done" as const : x.stage }
+            : x));
           setFadingIds(s => { const n = new Set(s); n.delete(id); return n; });
         }, 320);
         return prev;
@@ -347,17 +389,36 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
 
   const delTask = useCallback((id: string) => setTasks(t => t.filter(x => x.id !== id)), []);
 
-  const updateTask = useCallback((id: string, patch: Partial<Task>) => setTasks(t => t.map(x => {
-    if (x.id !== id) return x;
-    const next = { ...x, ...patch };
-    // Si la tarea pertenece a un proyecto y este cambio toca la fecha, la fecha
-    // manda sobre la columna del kanban — salvo que esté "bloqueada" o "terminada"
-    // (esas dos son estados manuales/excepcionales que no debe pisar la fecha).
-    if (next.projectId && "date" in patch && next.stage !== "blocked" && next.stage !== "done") {
-      next.stage = next.date ? "doing" : "todo";
-    }
-    return next;
-  })), []);
+  const updateTask: CerebroCtx["updateTask"] = useCallback((id, patch) => {
+    setTasks(prev => {
+      const x = prev.find(t => t.id === id);
+      if (!x) return prev;
+      const next: Task = { ...x, ...patch };
+      // Si la tarea pertenece a un proyecto y este cambio toca la fecha, la fecha
+      // manda sobre la columna del kanban — salvo que esté "bloqueada" o "terminada"
+      // (esas dos son estados manuales/excepcionales que no debe pisar la fecha).
+      if (next.projectId && "date" in patch && next.stage !== "blocked" && next.stage !== "done") {
+        next.stage = next.date ? "doing" : "todo";
+      }
+      const recurrenceChanged = "recurrence" in patch
+        && JSON.stringify(patch.recurrence ?? null) !== JSON.stringify(x.recurrence ?? null);
+      if (!recurrenceChanged) {
+        return prev.map(t => t.id === id ? next : t);
+      }
+      // La recurrencia se ha puesto, cambiado o quitado: se regeneran las próximas
+      // apariciones futuras (no completadas) de la serie a partir de esta.
+      const seriesId = x.seriesId ?? id;
+      next.seriesId = patch.recurrence ? seriesId : x.seriesId;
+      const anchorTime = next.date ? new Date(next.date).getTime() : Date.now();
+      let list = prev
+        .filter(t => !(t.id !== id && t.seriesId === seriesId && !t.done && t.date && new Date(t.date).getTime() > anchorTime))
+        .map(t => t.id === id ? next : t);
+      if (patch.recurrence && next.date) {
+        list = [...buildSeriesTasks(next, patch.recurrence, seriesId), ...list];
+      }
+      return list;
+    });
+  }, [buildSeriesTasks]);
 
   const addNote = useCallback((n: Note) => setNotes(prev => [n, ...prev]), []);
   const updateNote = useCallback((id: string, patch: Partial<Note>) => setNotes(ns => ns.map(n => n.id === id ? { ...n, ...patch } : n)), []);
@@ -805,10 +866,10 @@ export function CerebroProvider({ children }: { children: ReactNode }) {
     return d;
   }, []);
 
-  const convertTaskToNote: CerebroCtx["convertTaskToNote"] = useCallback((id) => {
+  const convertTaskToNote: CerebroCtx["convertTaskToNote"] = useCallback((id, folderId) => {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
-    addApunteDoc({ title: t.title, content: t.description ?? "", folderId: null, photos: t.photo ? [t.photo] : [] });
+    addApunteDoc({ title: t.title, content: t.description ?? "", folderId, photos: t.photo ? [t.photo] : [] });
     delTask(id);
     toast.success("Pasada a nota", { description: t.title });
   }, [tasks, addApunteDoc, delTask]);

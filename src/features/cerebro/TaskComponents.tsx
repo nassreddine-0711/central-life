@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { Task, CAT_COLORS, PRIO_COLORS, describeRecurrence, COMPLEXITY_LABEL, DayPart, DAY_PART_LABEL, DAY_PART_ORDER } from "./types";
 import { useKnowledge } from "@/features/knowledge/KnowledgeContext";
@@ -31,9 +33,15 @@ export function Empty({ msg }: { msg: string }) {
 
 export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }: { task: Task; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; compact?: boolean; fading?: boolean; }) {
   const { milestones } = useKnowledge();
-  const { openTaskDialog, projects, convertTaskToNote } = useCerebro();
+  const { openTaskDialog, projects, convertTaskToNote, apunteFolders, folderPath } = useCerebro();
   const [expanded, setExpanded] = useState(false);
   const [lightbox, setLightbox] = useState(false);
+  const [noteFolderOpen, setNoteFolderOpen] = useState(false);
+  const [noteFolder, setNoteFolder] = useState<string>("__root");
+  const folderOptions = useMemo(
+    () => apunteFolders.map(f => ({ id: f.id, label: folderPath(f.id).map(x => x.name).join(" / ") })),
+    [apunteFolders, folderPath]
+  );
   const milestone = task.linkedMilestoneId ? milestones.find(m => m.id === task.linkedMilestoneId) : undefined;
   const project = task.projectId ? projects.find(p => p.id === task.projectId) : undefined;
   const hasExtras = !!(task.description || task.photo);
@@ -41,7 +49,7 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
   return (
     <div className={cn(
       "group flex items-start gap-3 rounded-lg border bg-background/60 p-3 transition-all duration-300 hover:border-primary/40",
-      isEvent && "border-violet-500/40 bg-violet-500/[0.07] hover:border-violet-500/60",
+      isEvent && "border-2 border-violet-600 bg-violet-500/30 hover:border-violet-600 dark:bg-violet-500/40",
       task.done && "opacity-60",
       fading && "opacity-0 -translate-x-3 pointer-events-none",
     )}>
@@ -156,14 +164,38 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
             </TooltipTrigger>
             <TooltipContent>Clasificar para hoy</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => convertTaskToNote(task.id)}>
-                <StickyNote className="h-3.5 w-3.5" />
+          <Popover open={noteFolderOpen} onOpenChange={setNoteFolderOpen}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-7 w-7">
+                    <StickyNote className="h-3.5 w-3.5" />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Pasar a nota (Archivo)</TooltipContent>
+            </Tooltip>
+            <PopoverContent className="w-64 space-y-2 p-3" align="end">
+              <label className="text-xs font-medium text-muted-foreground">¿A qué carpeta del Archivo?</label>
+              <Select value={noteFolder} onValueChange={setNoteFolder}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__root">Archivo (raíz)</SelectItem>
+                  {folderOptions.map(fo => <SelectItem key={fo.id} value={fo.id}>{fo.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  convertTaskToNote(task.id, noteFolder === "__root" ? null : noteFolder);
+                  setNoteFolderOpen(false);
+                }}
+              >
+                Pasar a nota
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>Pasar a nota (Archivo)</TooltipContent>
-          </Tooltip>
+            </PopoverContent>
+          </Popover>
         </>
       )}
       <Button

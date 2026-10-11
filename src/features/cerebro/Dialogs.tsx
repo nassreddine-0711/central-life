@@ -17,7 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import {
   Category, Priority, Complexity, DayPart, DAY_PART_LABEL, DAY_PART_ORDER, CATEGORIES, DEFAULT_NOTE_CAT, uid,
-  Recurrence, RecurrenceFreq, MonthlyMode, WEEKDAY_LABELS, WEEKDAY_FULL, describeRecurrence,
+  Recurrence, RecurrenceFreq, MonthlyMode, WEEKDAY_LABELS, WEEKDAY_FULL, describeRecurrence, snapToRecurrence,
   TaskKind, TASK_KIND_LABEL,
   ProjectCategory, PROJECT_CAT_PALETTE,
 } from "./types";
@@ -289,7 +289,15 @@ export function TaskDialog() {
             </div>
           </div>
 
-          <RecurrencePicker value={recurrence} onChange={setRecurrence} />
+          <RecurrencePicker
+            value={recurrence}
+            onChange={(r) => {
+              setRecurrence(r);
+              // Al fijar "cada domingo" o "cada último domingo del mes", la fecha se
+              // ajusta sola a ese día en vez de quedarse en la que hubiera antes.
+              if (r) setDate(d => snapToRecurrence(r, d ?? new Date()));
+            }}
+          />
 
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => _setTaskDialogOpen(false)}>Cancelar</Button>

@@ -72,6 +72,8 @@ export interface Task {
   linkedNoteId?: string;
   linkedMilestoneId?: string;
   recurrence?: Recurrence;
+  /** Agrupa todas las apariciones generadas de una misma tarea/evento recurrente. */
+  seriesId?: string;
   /** Si pertenece a un Proyecto (Kanban), id del proyecto y columna actual. */
   projectId?: string;
   stage?: ProjectStage;
@@ -326,6 +328,30 @@ function nthWeekdayOfMonth(year: number, month: number, weekday: number, n: numb
 }
 
 /** Próxima fecha tras `from` siguiendo la recurrencia. Devuelve ISO string. */
+/** Primera fecha válida a partir de (incluyendo) `from` que cumple la recurrencia.
+ *  Se usa al elegir "cada domingo" o "cada último domingo del mes" para que la
+ *  fecha de la tarea/evento se ajuste sola a ese día, en vez de quedarse en el
+ *  día que hubiera puesto antes a mano. */
+export function snapToRecurrence(rec: Recurrence, from: Date): Date {
+  const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (rec.freq === "weekly" && rec.weekdays && rec.weekdays.length > 0) {
+    const toIdx = (js: number) => (js + 6) % 7;
+    for (let i = 0; i < 7; i++) {
+      const cand = new Date(from);
+      cand.setDate(cand.getDate() + i);
+      if (rec.weekdays.includes(toIdx(cand.getDay()))) return cand;
+    }
+  }
+  if (rec.freq === "monthly" && rec.monthlyMode === "weekday" && rec.monthlyWeekday !== undefined && rec.monthlyWeekN !== undefined) {
+    const y = from.getFullYear(), m = from.getMonth();
+    let cand = nthWeekdayOfMonth(y, m, rec.monthlyWeekday, rec.monthlyWeekN);
+    if (dayStart(cand) < dayStart(from)) cand = nthWeekdayOfMonth(y, m + 1, rec.monthlyWeekday, rec.monthlyWeekN);
+    cand.setHours(from.getHours(), from.getMinutes(), from.getSeconds(), from.getMilliseconds());
+    return cand;
+  }
+  return from;
+}
+
 export function nextRecurrence(rec: Recurrence, from: Date): Date {
   const d = new Date(from);
   if (rec.freq === "daily") { d.setDate(d.getDate() + 1); return d; }
