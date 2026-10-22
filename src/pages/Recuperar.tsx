@@ -3,7 +3,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/features/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 
-/** Página de un solo uso: devuelve a la nube los libros y el horario rescatados del navegador. */
+/** Página de un solo uso: devuelve a la nube los libros rescatados del navegador.
+ *  Solo toca el campo "books"; idiomas, hitos y horario se dejan tal cual estén en tu
+ *  cuenta ahora mismo (no se tocan ni se pisan). Se puede pulsar varias veces sin riesgo:
+ *  siempre une con lo que haya, nunca sustituye ni borra. */
 const Recuperar = () => {
   const { user } = useAuth();
   const [log, setLog] = useState<string[]>([]);
@@ -14,39 +17,26 @@ const Recuperar = () => {
     if (!user) return say("Inicia sesión primero.");
     setBusy(true);
     try {
-      const [k, r] = await Promise.all([
-        fetch("/recovery/knowledge.json").then((x) => x.json()),
-        fetch("/recovery/routines.json").then((x) => x.json()),
-      ]);
+      const k = await fetch("/recovery/knowledge.json").then((x) => x.json());
 
-      // Libros / idiomas / hitos: se unen con lo que haya en la nube (lo recuperado manda si coincide el id).
       const { data: kRow } = await supabase.from("user_data").select("data").eq("user_id", user.id).eq("module", "knowledge").maybeSingle();
-      const cur = (kRow?.data ?? {}) as { books?: { id: string }[]; languages?: { id: string }[]; milestones?: { id: string }[] };
+      const cur = (kRow?.data ?? {}) as Record<string, unknown> & { books?: { id: string; title?: string }[] };
       const union = <T extends { id: string }>(server: T[] = [], rec: T[] = []) => {
         const ids = new Set(rec.map((x) => x.id));
         return [...rec, ...server.filter((x) => !ids.has(x.id))];
       };
+      // Los libros de ejemplo (b1-b4) no cuentan como "reales": si están ahora mismo en la
+      // nube es que se perdieron los de verdad, así que no se mezclan con los rescatados.
       const realBooks = (cur.books ?? []).filter((b) => !/^b[1-4]$/.test(b.id));
-      const knowledge = {
-        books: union(realBooks, k.books),
-        languages: k.languages ?? cur.languages,
-        milestones: k.milestones ?? cur.milestones,
-      };
-      let res = await supabase.from("user_data").upsert(
+      const books: { id: string; title?: string }[] = union(realBooks, k.books ?? []);
+      const knowledge = { ...cur, books };
+      const res = await supabase.from("user_data").upsert(
         { user_id: user.id, module: "knowledge", data: knowledge, updated_at: new Date().toISOString() },
         { onConflict: "user_id,module" },
       );
       if (res.error) throw res.error;
-      say(`Libros restaurados: ${knowledge.books.length}`);
-
-      res = await supabase.from("user_data").upsert(
-        { user_id: user.id, module: "cerebro_routines", data: r, updated_at: new Date().toISOString() },
-        { onConflict: "user_id,module" },
-      );
-      if (res.error) throw res.error;
-      try { localStorage.setItem("cerebro.routines.v1", JSON.stringify(r)); } catch { /* */ }
-      say("Horario semanal restaurado.");
-      say("Listo. Recarga la página y revisa Biblioteca y Horario.");
+      say(`Libros restaurados: ${books.length} (${books.map((b) => b.title).join(", ")})`);
+      say("Listo. Recarga la página y revisa Biblioteca.");
     } catch (e) {
       say("Error: " + (e instanceof Error ? e.message : JSON.stringify(e)));
     } finally {
@@ -56,9 +46,10 @@ const Recuperar = () => {
 
   return (
     <div className="mx-auto max-w-lg space-y-4 p-6">
-      <h1 className="text-xl font-semibold">Recuperar libros y horario</h1>
+      <h1 className="text-xl font-semibold">Recuperar libros</h1>
       <p className="text-sm text-muted-foreground">
-        Restaura tus 6 libros y tu horario semanal (copia rescatada de Opera) en tu cuenta. Es seguro: une los libros con los que haya, sin borrar nada.
+        Restaura tus 6 libros (copia rescatada de Opera) en tu cuenta. Es seguro: solo toca
+        el campo de libros, los une con los que haya ahora y no borra ni toca nada más.
       </p>
       <Button onClick={run} disabled={busy}>{busy ? "Restaurando…" : "Restaurar ahora"}</Button>
       <ul className="space-y-1 text-sm">{log.map((l, i) => <li key={i}>{l}</li>)}</ul>

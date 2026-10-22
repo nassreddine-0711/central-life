@@ -30,16 +30,54 @@ function writePending(key: string, on: boolean) {
   try { if (on) localStorage.setItem(key, "1"); else localStorage.removeItem(key); } catch { /* sin espacio / modo privado */ }
 }
 
+// Red de seguridad extra: antes de sobrescribir lo que hay en el servidor, guarda una copia
+// de lo que había justo antes en este navegador (fuera de Supabase). No sustituye al fundido
+// sin pérdida de arriba, pero da un "por si acaso" offline ante cualquier fallo que no se
+// haya previsto. Limitado a payloads pequeños para no arriesgar quedarse sin espacio local.
+const BACKUP_MAX_PER_MODULE = 5;
+const BACKUP_MAX_BYTES = 300_000;
+function backupKey(userId: string, module: string) { return `sync-backup:${userId}:${module}`; }
+function pushBackup(userId: string, module: string, prevServerData: unknown) {
+  try {
+    const json = JSON.stringify(prevServerData);
+    if (!json || json.length > BACKUP_MAX_BYTES) return;
+    const key = backupKey(userId, module);
+    const raw = localStorage.getItem(key);
+    const list: { at: string; data: unknown }[] = raw ? JSON.parse(raw) : [];
+    list.push({ at: new Date().toISOString(), data: prevServerData });
+    while (list.length > BACKUP_MAX_PER_MODULE) list.shift();
+    localStorage.setItem(key, JSON.stringify(list));
+  } catch { /* localStorage lleno o modo privado: la copia es solo un extra, no pasa nada */ }
+}
+
 function isIdArray(v: unknown): v is { id: string }[] {
   return Array.isArray(v) && v.every(x => x && typeof x === "object" && typeof (x as { id?: unknown }).id === "string");
 }
 
-/** Une dos versiones sin perder nada: si el mismo id está en ambas, manda lo local; lo que solo existe en el servidor se conserva. */
+/** Une dos versiones SIN PERDER NADA, recursivamente:
+ *   - listas de objetos con id: por cada id que esté en ambos lados, se funden sus campos
+ *     (en vez de quedarse solo con la versión local entera) para no perder lo que el otro
+ *     lado tuviera de más dentro de ese mismo elemento (p. ej. los bloques de un horario,
+ *     o un campo añadido desde otro dispositivo); los elementos que solo existen en un
+ *     lado se conservan siempre.
+ *   - listas de valores simples (p. ej. categorías): unión sin duplicados.
+ *   - objetos normales: se funde cada campo por separado (recursivamente), no se sustituye
+ *     el objeto entero — así un campo que solo tenga datos reales en el servidor (p. ej.
+ *     "books") nunca desaparece solo porque el lado local sea un objeto más "nuevo" pero
+ *     con ese campo vacío o de relleno.
+ *   - valores sueltos (texto, número…): gana lo local. */
 function mergeData<T>(server: T, local: T): T {
   if (Array.isArray(server) && Array.isArray(local)) {
     if (isIdArray(server) && isIdArray(local)) {
+      const serverById = new Map<string, unknown>();
+      server.forEach(x => serverById.set(x.id, x));
       const localIds = new Set(local.map(x => x.id));
-      return [...local, ...server.filter(x => !localIds.has(x.id))] as unknown as T;
+      const merged = local.map(x => {
+        const s = serverById.get(x.id);
+        return s !== undefined ? mergeData(s, x) : x;
+      });
+      const onlyServer = server.filter(x => !localIds.has(x.id));
+      return [...merged, ...onlyServer] as unknown as T;
     }
     // Listas de valores simples (p. ej. categorías): unión sin duplicados.
     const out: unknown[] = [...local];
@@ -47,7 +85,15 @@ function mergeData<T>(server: T, local: T): T {
     return out as unknown as T;
   }
   if (server && local && typeof server === "object" && typeof local === "object" && !Array.isArray(server) && !Array.isArray(local)) {
-    return { ...(server as object), ...(local as object) } as T;
+    const so = server as Record<string, unknown>;
+    const lo = local as Record<string, unknown>;
+    const keys = new Set([...Object.keys(so), ...Object.keys(lo)]);
+    const out: Record<string, unknown> = {};
+    keys.forEach(k => {
+      const sv = so[k], lv = lo[k];
+      out[k] = sv === undefined ? lv : lv === undefined ? sv : mergeData(sv, lv);
+    });
+    return out as T;
   }
   return local;
 }
@@ -106,6 +152,7 @@ export function useSupabaseSync<T>(
     // Tomamos lo más reciente DESPUÉS de la espera, por si se ha seguido escribiendo.
     let toSave = valueRef.current;
     if (cur && cur.data !== null && cur.data !== undefined) {
+      pushBackup(userId, module, cur.data); // por si acaso, antes de tocar lo que había
       const changedElsewhere =
         stampRef.current === null || new Date(cur.updated_at).getTime() !== new Date(stampRef.current).getTime();
       if (changedElsewhere) {
@@ -207,9 +254,18 @@ export function useSupabaseSync<T>(
 
       // Si lo del servidor es solo contenido de relleno y lo local son datos reales, mandan los reales.
       const isDef = optionsRef.current?.isDefault;
-      const localBeatsPlaceholder = !!isDef && isDef(serverData) && !isDef(local);
+      const localIsPlaceholder = !!isDef && isDef(local);
+      const localBeatsPlaceholder = !!isDef && isDef(serverData) && !localIsPlaceholder;
 
-      if (localNewer || localBeatsPlaceholder) {
+      // Un "pendiente" puede haber quedado marcado de una sesión anterior que se cerró a
+      // medias (pestaña cerrada de golpe, sin red…) ANTES de que este módulo llegara a
+      // cargar nada: en ese caso "local" no es más que el estado inicial de ejemplo, no un
+      // cambio real que haya que subir. Si lo tratáramos como "más nuevo" lo pisaríamos
+      // sobre tus datos reales del servidor. Así que un pendiente así solo cuenta si lo
+      // local no es, según el propio módulo, puro contenido de relleno.
+      const trustLocal = (localNewer && !localIsPlaceholder) || localBeatsPlaceholder;
+
+      if (trustLocal) {
         // Hay cambios locales sin subir: se unen con el servidor, nunca se descartan.
         const merged = mergeData(serverData, local);
         valueRef.current = merged;
@@ -223,6 +279,9 @@ export function useSupabaseSync<T>(
         setValueRef.current(serverData);
         initialized.current = true;
         setReady(true);
+        // Esa marca de "pendiente" no correspondía a nada real: se limpia para no
+        // arrastrarla a la próxima carga.
+        if (localNewer) writePending(key, false);
       }
     };
 

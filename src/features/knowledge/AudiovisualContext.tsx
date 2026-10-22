@@ -48,7 +48,10 @@ export function AudiovisualProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<MediaItem[]>(defaults);
 
   // ── Sync con Supabase ───────────────────────────────────────────────────
-  useSupabaseSync("audiovisual", items, setItems);
+  // Los vídeos/pelis/series/podcasts de ejemplo (av1-av4) nunca deben pisar tus datos reales.
+  useSupabaseSync<MediaItem[]>("audiovisual", items, setItems, {
+    isDefault: (v) => v.every((it) => /^av[1-4]$/.test(it.id)),
+  });
 
   const addItem: Ctx["addItem"] = useCallback((m) => {
     const created: MediaItem = { ...m, id: crypto.randomUUID() };
