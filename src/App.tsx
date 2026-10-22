@@ -20,6 +20,7 @@ import Objetivos from "./pages/Objetivos.tsx";
 import Cerebro from "./pages/Cerebro.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import Recuperar from "./pages/Recuperar.tsx";
+import Historial from "./pages/Historial.tsx";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -58,6 +59,7 @@ function AppRoutes() {
                         <Route path="/objetivos" element={<Objetivos />} />
                         <Route path="/cerebro" element={<Cerebro />} />
                         <Route path="/recuperar" element={<Recuperar />} />
+                        <Route path="/historial" element={<Historial />} />
                       </Route>
                       <Route path="*" element={<NotFound />} />
                     </Routes>

@@ -33,6 +33,30 @@ export type Database = {
         }
         Relationships: []
       }
+      user_data_history: {
+        Row: {
+          id: number
+          user_id: string
+          module: string
+          data: Json
+          archived_at: string
+        }
+        Insert: {
+          id?: number
+          user_id: string
+          module: string
+          data?: Json
+          archived_at?: string
+        }
+        Update: {
+          id?: number
+          user_id?: string
+          module?: string
+          data?: Json
+          archived_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {}
     Functions: {}
