@@ -16,14 +16,14 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 /* ---------- Types ---------- */
-interface RoutineCategory {
+export interface RoutineCategory {
   id: string;
   name: string;
   color: string;
   description?: string;
 }
 
-interface RoutineVersion {
+export interface RoutineVersion {
   id: string;
   name: string;
   /** Map "day-slot" → categoryId  (day: 0=Lun..6=Dom, slot: 0..47, cada slot = 30 min; slot 0 = 00:00–00:30) */
@@ -31,7 +31,7 @@ interface RoutineVersion {
 }
 
 /** Horas (0-23) en las que empieza cada franja del día. */
-interface PeriodBoundaries {
+export interface PeriodBoundaries {
   morningStart: number;
   middayStart: number;
   afternoonStart: number;
@@ -39,12 +39,12 @@ interface PeriodBoundaries {
 }
 
 /** Rango de horas (0-24) que se muestra en la tabla. endHour=24 significa hasta las 23:30. */
-interface VisibleRange {
+export interface VisibleRange {
   startHour: number;
   endHour: number;
 }
 
-interface RoutinesState {
+export interface RoutinesState {
   versions: RoutineVersion[];
   categories: RoutineCategory[];
   currentId: string;
@@ -61,8 +61,8 @@ const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"] as const;
 const DAYS_FULL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"] as const;
 /** 48 slots de media hora: slot 0 = 00:00, slot 1 = 00:30 … slot 47 = 23:30 */
 const SLOTS = Array.from({ length: 48 }, (_, i) => i);
-const DEFAULT_PERIODS: PeriodBoundaries = { morningStart: 7, middayStart: 12, afternoonStart: 14, nightStart: 21 };
-const DEFAULT_VISIBLE_RANGE: VisibleRange = { startHour: 0, endHour: 24 };
+export const DEFAULT_PERIODS: PeriodBoundaries = { morningStart: 7, middayStart: 12, afternoonStart: 14, nightStart: 21 };
+export const DEFAULT_VISIBLE_RANGE: VisibleRange = { startHour: 0, endHour: 24 };
 const HOURS_0_24 = Array.from({ length: 25 }, (_, i) => i);
 const PERIOD_LABELS: { key: keyof PeriodBoundaries; label: string }[] = [
   { key: "morningStart", label: "Empieza mi día desde" },
@@ -70,7 +70,7 @@ const PERIOD_LABELS: { key: keyof PeriodBoundaries; label: string }[] = [
   { key: "afternoonStart", label: "Tarde desde" },
   { key: "nightStart", label: "Noche desde" },
 ];
-const slotLabel = (slot: number) => {
+export const slotLabel = (slot: number) => {
   const hour = Math.floor(slot / 2);
   const minute = slot % 2 === 0 ? "00" : "30";
   return `${hour.toString().padStart(2, "0")}:${minute}`;
@@ -132,7 +132,7 @@ function isEmptySchedule(s: RoutinesState): boolean {
 }
 
 /** Rellena lo que falte y migra versiones antiguas (sirve para lo local y para lo que llega de la nube). */
-function normalizeState(parsed: RoutinesState): RoutinesState {
+export function normalizeState(parsed: RoutinesState): RoutinesState {
   if (!parsed.versions?.length) return defaultState();
   if (!parsed.versions.find((v) => v.id === parsed.currentId)) {
     parsed.currentId = parsed.versions[0].id;

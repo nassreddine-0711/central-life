@@ -1,5 +1,5 @@
 import { isBefore, startOfDay, isAfter } from "date-fns";
-import { Plus, Inbox, Calendar as CalendarIcon, Flag, History, ListTodo, FolderKanban } from "lucide-react";
+import { Plus, Inbox, Calendar as CalendarIcon, Flag, History, ListTodo, FolderKanban, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -11,6 +11,7 @@ import { PRIO_LABEL, nextOccurrenceOnly } from "../types";
 import { HistorialView } from "../HistorialView";
 import { RutinasPanel } from "./RutinasPanel";
 import { ProjectsPanel } from "./ProjectsPanel";
+import { DayView } from "./DayView";
 
 const INBOX_VISIBLE = 6;
 
@@ -76,6 +77,9 @@ function FocoPanel() {
         <Tabs defaultValue="week" className="w-full">
           <div className="mb-4 -mx-1 overflow-x-auto px-1">
             <TabsList className="inline-flex h-auto w-max gap-1">
+              <TabsTrigger value="day" className="whitespace-nowrap">
+                <Clock className="mr-2 h-4 w-4" />Día
+              </TabsTrigger>
               <TabsTrigger value="week" className="whitespace-nowrap">
                 <CalendarIcon className="mr-2 h-4 w-4" />Semana
               </TabsTrigger>
@@ -94,6 +98,10 @@ function FocoPanel() {
           <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
             {/* LEFT */}
             <div className="min-w-0">
+              <TabsContent value="day" className="mt-0">
+                <DayView />
+              </TabsContent>
+
               <TabsContent value="week" className="mt-0 space-y-3">
                 <div className="flex justify-end">
                   <Button variant="outline" size="sm" onClick={() => openTaskDialog()}>
