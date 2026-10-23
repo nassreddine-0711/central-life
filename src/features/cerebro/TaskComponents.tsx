@@ -273,7 +273,7 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNew
       </div>
 
       <div className="-mx-1 overflow-x-auto px-1 pb-1">
-        <div className="flex items-stretch gap-2">
+        <div className="flex items-start gap-2">
           {days.map(d => {
             const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
             const today = isToday(d);
