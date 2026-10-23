@@ -234,10 +234,10 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
   );
 }
 
-export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate, columns = 1 }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; columns?: 1 | 2; }) {
+export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate, columns = 1, compact }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; columns?: 1 | 2; compact?: boolean; }) {
   return (
     <div className={columns === 2 ? "grid grid-cols-1 gap-2 sm:grid-cols-2" : "space-y-2"}>
-      {tasks.map(t => <TaskRow key={t.id} task={t} fading={fadingIds?.has(t.id)} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />)}
+      {tasks.map(t => <TaskRow key={t.id} task={t} compact={compact} fading={fadingIds?.has(t.id)} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />)}
     </div>
   );
 }
@@ -272,40 +272,55 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNew
         <h3 className="text-sm font-semibold capitalize text-foreground">{rangeLabel}</h3>
       </div>
 
-      <div className="space-y-3">
-        {days.map(d => {
-          const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
-          const today = isToday(d);
-          return (
-            <Section
-              key={d.toISOString()}
-              title={format(d, "EEEE d MMM", { locale: es })}
-              className={today ? "border-primary/60 ring-1 ring-primary/20 bg-primary/[0.03]" : undefined}
-              action={
-                <>
-                  {today && <Badge className="h-5 bg-primary/15 text-[10px] text-primary hover:bg-primary/15">Hoy</Badge>}
-                  {onNewTask && (
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onNewTask(d)} title="Nueva tarea este día">
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </>
-              }
-            >
-              {list.length === 0 ? (
-                onNewTask ? (
-                  <button
-                    type="button"
-                    onClick={() => onNewTask(d)}
-                    className="w-full rounded-lg border border-dashed border-border py-6 text-center text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary"
-                  >
-                    Sin tareas. Toca para añadir una.
-                  </button>
-                ) : <Empty msg="Sin tareas." />
-              ) : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} columns={2} />}
-            </Section>
-          );
-        })}
+      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className="flex items-stretch gap-2">
+          {days.map(d => {
+            const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
+            const today = isToday(d);
+            return (
+              <div
+                key={d.toISOString()}
+                className={cn(
+                  "flex min-w-[160px] flex-1 flex-col rounded-xl border bg-card/80 p-2.5 shadow-sm backdrop-blur-sm",
+                  today && "border-primary/60 ring-1 ring-primary/20 bg-primary/[0.03]"
+                )}
+              >
+                <div className="mb-2 flex items-center justify-between gap-1">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {format(d, "EEE", { locale: es })}
+                    </p>
+                    <p className={cn("text-sm font-semibold capitalize", today ? "text-primary" : "text-foreground")}>
+                      {format(d, "d MMM", { locale: es })}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {today && <Badge className="h-5 bg-primary/15 px-1.5 text-[10px] text-primary hover:bg-primary/15">Hoy</Badge>}
+                    {onNewTask && (
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onNewTask(d)} title="Nueva tarea este día">
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-1">
+                  {list.length === 0 ? (
+                    onNewTask ? (
+                      <button
+                        type="button"
+                        onClick={() => onNewTask(d)}
+                        className="w-full rounded-lg border border-dashed border-border py-5 text-center text-xs text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                      >
+                        Sin tareas. Toca para añadir.
+                      </button>
+                    ) : <p className="py-5 text-center text-xs text-muted-foreground">Sin tareas.</p>
+                  ) : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} compact />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
