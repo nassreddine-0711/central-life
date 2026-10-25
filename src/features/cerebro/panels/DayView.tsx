@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { addDays, format, isSameDay, isToday, subDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Plus, Target, X, ListChecks } from "lucide-react";
@@ -7,31 +7,26 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/features/auth/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
 import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 import { useCerebro } from "../CerebroContext";
 import { Empty, TaskList } from "../TaskComponents";
 import { DayPart, DAY_PART_LABEL, DAY_PART_ORDER } from "../types";
-import {
-  RoutinesState,
-  RoutineCategory,
-  normalizeState,
-  DEFAULT_PERIODS,
-  DEFAULT_VISIBLE_RANGE,
-  slotLabel,
-} from "./RutinasPanel";
 
 /* ============================================================
-   Vista diaria: horario de un solo día (pintado de fondo según la
-   rutina seleccionada en el Gestor de Rutinas), con sitio para escribir
-   encima lo que harás de verdad, objetivos del día, tareas del día y
-   hábitos/actividades a marcar.
+   Vista diaria: un espacio para organizar el día con un cuadro de
+   texto libre por cada hora (sin límite de texto, con puntos que se
+   pueden marcar como hechos), más objetivos del día, las tareas de
+   ese día y hábitos/actividades a marcar.
 ============================================================ */
 
 /* ---------- Tipos propios ---------- */
+interface HourItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
 interface DailyPlanEntry {
-  notes: Partial<Record<DayPart, string>>;
+  hours: Partial<Record<number, HourItem[]>>;
   goals: string[];
   habitChecks: string[];
 }
@@ -42,46 +37,23 @@ interface HabitItem {
   label: string;
 }
 
-const EMPTY_ENTRY: DailyPlanEntry = { notes: {}, goals: [], habitChecks: [] };
+const EMPTY_ENTRY: DailyPlanEntry = { hours: {}, goals: [], habitChecks: [] };
 const isDailyPlanEmpty = (v: DailyPlanState) => Object.keys(v ?? {}).length === 0;
 const isHabitsEmpty = (v: HabitItem[]) => (v ?? []).length === 0;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const dateKey = (d: Date) => format(d, "yyyy-MM-dd");
-const ROW_PX = 20;
-const ALL_SLOTS = Array.from({ length: 48 }, (_, i) => i);
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const hourLabel = (h: number) => `${h.toString().padStart(2, "0")}:00`;
 
-/** Lee el horario de Rutinas en modo SOLO LECTURA. No usa useSupabaseSync aquí a
- *  propósito: ese hook ya se usa, para este mismo módulo, dentro del Gestor de
- *  Rutinas. Tener dos sincronizadores activos sobre el mismo dato a la vez es
- *  justo el tipo de cosa que puede pisar datos; aquí solo hace falta leer, nunca
- *  escribir, así que una simple lectura puntual es más segura. */
-function useRoutinesReadOnly(): RoutinesState | null {
-  const { user } = useAuth();
-  const [routines, setRoutines] = useState<RoutinesState | null>(null);
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    supabase
-      .from("user_data")
-      .select("data")
-      .eq("user_id", user.id)
-      .eq("module", "cerebro_routines")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled || !data?.data) return;
-        setRoutines(normalizeState(data.data as unknown as RoutinesState));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-  return routines;
-}
+/** Autoajusta la altura del textarea a su contenido (sin límite de texto visible). */
+const autoGrow = (el: HTMLTextAreaElement) => {
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+};
 
 export function DayView() {
   const { tasks, fadingIds, toggleTask, delTask, updateTask, openTaskDialog } = useCerebro();
-  const routines = useRoutinesReadOnly();
 
   const [selected, setSelected] = useState(() => new Date());
   const key = dateKey(selected);
@@ -96,11 +68,25 @@ export function DayView() {
   const patchEntry = (patch: Partial<DailyPlanEntry>) => {
     setDailyPlan((prev) => ({ ...prev, [key]: { ...(prev[key] ?? EMPTY_ENTRY), ...patch } }));
   };
-  const setNote = (part: DayPart, text: string) => {
-    setDailyPlan((prev) => {
-      const cur = prev[key] ?? EMPTY_ENTRY;
-      return { ...prev, [key]: { ...cur, notes: { ...cur.notes, [part]: text } } };
-    });
+
+  /* ---------- Horario por horas: una lista de puntos marcables por hora ---------- */
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const itemsFor = (h: number) => entry.hours[h] ?? [];
+  const addItem = (h: number) => {
+    const text = (drafts[h] ?? "").trim();
+    if (!text) return;
+    const item: HourItem = { id: uid(), text, done: false };
+    patchEntry({ hours: { ...entry.hours, [h]: [...itemsFor(h), item] } });
+    setDrafts((d) => ({ ...d, [h]: "" }));
+  };
+  const toggleItem = (h: number, id: string) => {
+    patchEntry({ hours: { ...entry.hours, [h]: itemsFor(h).map((it) => (it.id === id ? { ...it, done: !it.done } : it)) } });
+  };
+  const removeItem = (h: number, id: string) => {
+    patchEntry({ hours: { ...entry.hours, [h]: itemsFor(h).filter((it) => it.id !== id) } });
+  };
+  const editItemText = (h: number, id: string, text: string) => {
+    patchEntry({ hours: { ...entry.hours, [h]: itemsFor(h).map((it) => (it.id === id ? { ...it, text } : it)) } });
   };
 
   /* ---------- Objetivos del día ---------- */
@@ -140,62 +126,9 @@ export function DayView() {
     return map;
   }, [dayTasks]);
 
-  /* ---------- Horario de fondo: categoría pintada en cada media hora ---------- */
-  const weekday = (selected.getDay() + 6) % 7; // 0=Lun..6=Dom
-  const version = routines
-    ? routines.versions.find((v) => v.id === routines.currentId) ?? routines.versions[0]
-    : undefined;
-  const catById = (id?: string): RoutineCategory | undefined =>
-    id ? routines?.categories.find((c) => c.id === id) : undefined;
-  const periods = routines?.periodBoundaries ?? DEFAULT_PERIODS;
-  const visibleRange = routines?.visibleRange ?? DEFAULT_VISIBLE_RANGE;
-
-  const visibleSlots = useMemo(() => {
-    const startSlot = Math.round(visibleRange.startHour * 2);
-    const endSlot = Math.round(visibleRange.endHour * 2);
-    const filtered = ALL_SLOTS.filter((s) => s >= startSlot && s < endSlot);
-    return filtered.length > 0 ? filtered : ALL_SLOTS;
-  }, [visibleRange.startHour, visibleRange.endHour]);
-
-  /** A qué franja (mañana/mediodía/tarde/noche) pertenece una media hora, según los
-   *  límites configurados en Rutinas. Antes de que empiece "mi día" se considera que
-   *  sigue siendo de noche (igual que en el Gestor de Rutinas). */
-  const partForSlot = (slot: number): DayPart => {
-    const h = slot / 2;
-    if (h >= periods.nightStart) return "evening";
-    if (h >= periods.afternoonStart) return "afternoon";
-    if (h >= periods.middayStart) return "midday";
-    if (h >= periods.morningStart) return "morning";
-    return "evening";
-  };
-
-  /** Tramos contiguos de una misma franja dentro del rango visible. Normalmente son 4
-   *  (uno por franja), pero si "noche" cruza la medianoche dentro del rango visible
-   *  puede aparecer dos veces (madrugada + noche); solo el tramo más largo de cada
-   *  franja lleva cuadro de texto, el otro solo se ve de fondo. */
-  const partSegments = useMemo(() => {
-    const segs: { dp: DayPart; start: number; end: number }[] = [];
-    visibleSlots.forEach((slot, i) => {
-      const dp = partForSlot(slot);
-      const last = segs[segs.length - 1];
-      if (last && last.dp === dp) last.end = i + 2;
-      else segs.push({ dp, start: i + 1, end: i + 2 });
-    });
-    return segs;
-  }, [visibleSlots, periods]);
-
-  const editableSegmentKeys = useMemo(() => {
-    const best = new Map<DayPart, { start: number; end: number }>();
-    partSegments.forEach((seg) => {
-      const cur = best.get(seg.dp);
-      if (!cur || seg.end - seg.start > cur.end - cur.start) best.set(seg.dp, { start: seg.start, end: seg.end });
-    });
-    return new Set(Array.from(best.entries()).map(([dp, r]) => `${dp}-${r.start}`));
-  }, [partSegments]);
-
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-      {/* ---------- IZQUIERDA: horario grande del día ---------- */}
+      {/* ---------- IZQUIERDA: horario del día, por horas ---------- */}
       <div className="min-w-0 rounded-2xl border bg-card/50 p-4 shadow-sm backdrop-blur-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1">
@@ -216,78 +149,54 @@ export function DayView() {
           </h3>
         </div>
 
-        {routines && routines.categories.length > 0 && (
-          <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-            {routines.categories.map((c) => (
-              <span key={c.id} className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
-                {c.name}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="overflow-hidden rounded-lg border border-border/60">
-          <div
-            className="grid"
-            style={{ gridTemplateColumns: "48px 1fr", gridTemplateRows: `repeat(${visibleSlots.length}, ${ROW_PX}px)` }}
-          >
-            {/* Columna de horas */}
-            {visibleSlots.map((slot, i) => {
-              const isHourMark = slot % 2 === 0;
-              return (
-                <div
-                  key={`h-${slot}`}
-                  style={{ gridRow: i + 1, gridColumn: 1 }}
-                  className={cn(
-                    "flex items-start justify-end border-r border-border/40 px-1.5 font-mono text-[9px] text-muted-foreground/60",
-                    isHourMark ? "border-t border-t-border/40" : "border-t border-t-transparent",
-                  )}
-                >
-                  {isHourMark ? slotLabel(slot) : ""}
-                </div>
-              );
-            })}
-
-            {/* Fondo de color según la rutina */}
-            {visibleSlots.map((slot, i) => {
-              const cat = catById(version?.blocks[`${weekday}-${slot}`]);
-              const isHourMark = slot % 2 === 0;
-              return (
-                <div
-                  key={`bg-${slot}`}
-                  style={{ gridRow: i + 1, gridColumn: 2, backgroundColor: cat?.color, opacity: cat ? 0.16 : 1 }}
-                  className={cn("border-t", isHourMark ? "border-t-border/30" : "border-t-border/10")}
-                />
-              );
-            })}
-
-            {/* Cuadros para escribir qué harás, uno por franja (hereda los límites de Rutinas) */}
-            {partSegments.map((seg) => {
-              const editable = editableSegmentKeys.has(`${seg.dp}-${seg.start}`);
-              return (
-                <div
-                  key={`${seg.dp}-${seg.start}`}
-                  style={{ gridRow: `${seg.start} / ${seg.end}`, gridColumn: 2 }}
-                  className="relative z-10 flex flex-col overflow-hidden border-t border-dashed border-border/50 p-1.5"
-                >
-                  <span className="mb-1 shrink-0 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-                    {DAY_PART_LABEL[seg.dp]}
-                  </span>
-                  {editable ? (
-                    <Textarea
-                      value={entry.notes[seg.dp] ?? ""}
-                      onChange={(e) => setNote(seg.dp, e.target.value)}
-                      placeholder="¿Qué vas a hacer?"
-                      className="h-full min-h-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-0 text-sm shadow-none focus-visible:ring-0"
+        <div className="divide-y divide-border/40 rounded-lg border border-border/60">
+          {HOURS.map((h) => {
+            const items = itemsFor(h);
+            return (
+              <div key={h} className="flex items-start gap-3 px-2 py-2">
+                <span className="w-11 shrink-0 pt-1 font-mono text-xs text-muted-foreground">{hourLabel(h)}</span>
+                <div className="min-w-0 flex-1 space-y-1">
+                  {items.map((item) => (
+                    <div key={item.id} className="group flex items-start gap-2">
+                      <Checkbox
+                        className="mt-1.5 shrink-0"
+                        checked={item.done}
+                        onCheckedChange={() => toggleItem(h, item.id)}
+                      />
+                      <Textarea
+                        value={item.text}
+                        onChange={(e) => editItemText(h, item.id, e.target.value)}
+                        onInput={(e) => autoGrow(e.currentTarget)}
+                        rows={1}
+                        className={cn(
+                          "min-h-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0.5 text-sm leading-snug shadow-none focus-visible:ring-0",
+                          item.done && "text-muted-foreground line-through",
+                        )}
+                      />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                        onClick={() => removeItem(h, item.id)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2">
+                    <span className="h-4 w-4 shrink-0" />
+                    <Input
+                      value={drafts[h] ?? ""}
+                      onChange={(e) => setDrafts((d) => ({ ...d, [h]: e.target.value }))}
+                      onKeyDown={(e) => e.key === "Enter" && addItem(h)}
+                      placeholder="Escribe algo para esta hora…"
+                      className="h-7 flex-1 border-0 bg-transparent px-0 text-sm shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
                     />
-                  ) : (
-                    <span className="text-[10px] text-muted-foreground/50">· sigue en {DAY_PART_LABEL[seg.dp]} ·</span>
-                  )}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
