@@ -63,15 +63,18 @@ export function DayView() {
   const [habits, setHabits] = useState<HabitItem[]>([]);
   useSupabaseSync<HabitItem[]>("cerebro_habits", habits, setHabits, { isDefault: isHabitsEmpty });
 
-  const entry = dailyPlan[key] ?? EMPTY_ENTRY;
+  // Si había un día guardado con la forma antigua (de antes de este cambio), le
+  // rellenamos los campos que falten en vez de asumir que ya los tiene: así nunca
+  // revienta al leer un día guardado con una versión anterior de esta pantalla.
+  const entry: DailyPlanEntry = { ...EMPTY_ENTRY, ...(dailyPlan[key] ?? {}) };
 
   const patchEntry = (patch: Partial<DailyPlanEntry>) => {
-    setDailyPlan((prev) => ({ ...prev, [key]: { ...(prev[key] ?? EMPTY_ENTRY), ...patch } }));
+    setDailyPlan((prev) => ({ ...prev, [key]: { ...EMPTY_ENTRY, ...(prev[key] ?? {}), ...patch } }));
   };
 
   /* ---------- Horario por horas: una lista de puntos marcables por hora ---------- */
   const [drafts, setDrafts] = useState<Record<number, string>>({});
-  const itemsFor = (h: number) => entry.hours[h] ?? [];
+  const itemsFor = (h: number) => entry.hours?.[h] ?? [];
   const addItem = (h: number) => {
     const text = (drafts[h] ?? "").trim();
     if (!text) return;
