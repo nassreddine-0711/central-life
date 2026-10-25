@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useSupabaseSync } from "@/hooks/useSupabaseSync";
 import { useCerebro } from "../CerebroContext";
@@ -25,8 +26,13 @@ interface HourItem {
   text: string;
   done: boolean;
 }
+interface HourRange {
+  start: number;
+  end: number;
+}
 interface DailyPlanEntry {
   hours: Partial<Record<number, HourItem[]>>;
+  hourRange?: HourRange;
   goals: string[];
   habitChecks: string[];
 }
@@ -44,6 +50,7 @@ const isHabitsEmpty = (v: HabitItem[]) => (v ?? []).length === 0;
 const uid = () => Math.random().toString(36).slice(2, 10);
 const dateKey = (d: Date) => format(d, "yyyy-MM-dd");
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const END_HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i + 1); // 1..24 (24 = hasta medianoche)
 const hourLabel = (h: number) => `${h.toString().padStart(2, "0")}:00`;
 
 /** Autoajusta la altura del textarea a su contenido (sin límite de texto visible). */
@@ -129,6 +136,12 @@ export function DayView() {
     return map;
   }, [dayTasks]);
 
+  // Rango de horas visibles para este día en concreto: cada día puede necesitar ver
+  // más o menos horas, así que se guarda por día, no fijo para todos.
+  const range = entry.hourRange ?? { start: 0, end: 24 };
+  const visibleHours = HOURS.filter((h) => h >= range.start && h < range.end);
+  const setRange = (patch: Partial<HourRange>) => patchEntry({ hourRange: { ...range, ...patch } });
+
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
       {/* ---------- IZQUIERDA: horario del día, por horas ---------- */}
@@ -152,11 +165,28 @@ export function DayView() {
           </h3>
         </div>
 
-        <div className="divide-y divide-border/40 rounded-lg border border-border/60">
-          {HOURS.map((h) => {
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>Horas visibles:</span>
+          <Select value={String(range.start)} onValueChange={(v) => setRange({ start: Number(v) })}>
+            <SelectTrigger className="h-7 w-[84px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {HOURS.map((h) => <SelectItem key={h} value={String(h)}>{hourLabel(h)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <span>–</span>
+          <Select value={String(range.end)} onValueChange={(v) => setRange({ end: Number(v) })}>
+            <SelectTrigger className="h-7 w-[84px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {END_HOUR_OPTIONS.map((h) => <SelectItem key={h} value={String(h)}>{`${h.toString().padStart(2, "0")}:00`}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          {visibleHours.map((h) => {
             const items = itemsFor(h);
             return (
-              <div key={h} className="flex items-start gap-3 px-2 py-2">
+              <div key={h} className="flex items-start gap-3 rounded-xl border-2 border-foreground/30 bg-background/40 p-2.5">
                 <span className="w-11 shrink-0 pt-1 font-mono text-xs text-muted-foreground">{hourLabel(h)}</span>
                 <div className="min-w-0 flex-1 space-y-1">
                   {items.map((item) => (
