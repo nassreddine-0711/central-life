@@ -95,9 +95,7 @@ function FocoPanel() {
             </TabsList>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-            {/* LEFT */}
-            <div className="min-w-0">
+          <div className="min-w-0">
               <TabsContent value="day" className="mt-0">
                 <DayView />
               </TabsContent>
@@ -158,16 +156,13 @@ function FocoPanel() {
               </TabsContent>
             </div>
 
-            {/* RIGHT: Inbox + Atrasadas */}
-            <aside className="space-y-4">
+          {/* Inbox + Atrasadas: debajo de todas las vistas, uno al lado del otro ocupando todo el ancho */}
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className={overdue.length === 0 ? "sm:col-span-2" : undefined}>
               <Section title={`Inbox (${inbox.length})`} icon={<Inbox className="h-4 w-4" />}>
                 {inbox.length === 0 ? <Empty msg="Inbox vacío." /> : (
                   <div className="flex flex-col">
-                    <div className="space-y-2">
-                      {inbox.slice(0, INBOX_VISIBLE).map(t => (
-                        <TaskRow key={t.id} task={t} compact fading={fadingIds.has(t.id)} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
-                      ))}
-                    </div>
+                    <TaskList tasks={inbox.slice(0, INBOX_VISIBLE)} fadingIds={fadingIds} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} columns={2} compact />
                     {inbox.length > INBOX_VISIBLE && (
                       <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setInboxOpen(true)}>
                         Ver todas ({inbox.length})
@@ -176,12 +171,12 @@ function FocoPanel() {
                   </div>
                 )}
               </Section>
-              {overdue.length > 0 && (
-                <Section title={`Atrasadas (${overdue.length})`} accent="text-rose-500">
-                  <TaskList tasks={overdue} fadingIds={fadingIds} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} />
-                </Section>
-              )}
-            </aside>
+            </div>
+            {overdue.length > 0 && (
+              <Section title={`Atrasadas (${overdue.length})`} accent="text-rose-500">
+                <TaskList tasks={overdue} fadingIds={fadingIds} onToggle={toggleTask} onDelete={delTask} onUpdate={updateTask} columns={2} />
+              </Section>
+            )}
           </div>
         </Tabs>
       </div>

@@ -281,7 +281,7 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNew
               <div
                 key={d.toISOString()}
                 className={cn(
-                  "flex min-w-[160px] flex-1 flex-col rounded-xl border bg-card/80 p-2.5 shadow-sm backdrop-blur-sm",
+                  "flex min-w-[190px] flex-1 flex-col rounded-xl border bg-card/80 p-2.5 shadow-sm backdrop-blur-sm",
                   today && "border-primary/60 ring-1 ring-primary/20 bg-primary/[0.03]"
                 )}
               >
