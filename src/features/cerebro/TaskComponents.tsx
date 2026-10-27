@@ -76,19 +76,22 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, dense, de
           <p
             className={cn(
               "flex-1 font-medium cursor-pointer transition-all",
-              dense ? "text-xs" : "text-sm",
+              dense ? "text-[10px]" : "text-sm",
               expanded ? "whitespace-pre-wrap break-words" : "truncate",
               (task.done || fading) && "line-through"
             )}
             onClick={() => setExpanded(v => !v)}
             title={task.title}
           >{task.title}</p>
-          {project && (
-            <Badge variant="outline" className="ml-auto h-5 shrink-0 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary">
-              <FolderKanban className="h-2.5 w-2.5" />
-              <span className="max-w-[110px] truncate">{project.title}</span>
-            </Badge>
-          )}
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {project && (
+              <Badge variant="outline" className={cn("h-5 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary", dense && "h-4 gap-0.5 px-1 text-[9px]")}>
+                <FolderKanban className={cn("h-2.5 w-2.5", dense && "h-2 w-2")} />
+                <span className="max-w-[110px] truncate">{project.title}</span>
+              </Badge>
+            )}
+            <Flag className={cn("h-3.5 w-3.5 shrink-0", dense && "h-3 w-3", PRIO_COLORS[task.priority])} />
+          </div>
         </div>
 
         {expanded && task.photo && (
@@ -117,37 +120,36 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, dense, de
         )}
 
         {!compact && (
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="outline" className={cn("h-5 border", CAT_COLORS[task.category])}>{task.category}</Badge>
-            <Flag className={cn("h-3 w-3", PRIO_COLORS[task.priority])} />
+          <div className={cn("mt-1 flex flex-wrap items-center gap-2 text-xs", dense && "gap-1")}>
+            <Badge variant="outline" className={cn("h-5 border", CAT_COLORS[task.category], dense && "h-4 px-1 text-[9px]")}>{task.category}</Badge>
             {/* Complexity badge */}
             {task.complexity === "deep" ? (
-              <Badge variant="outline" className="h-5 gap-1 border-purple-500/40 bg-purple-500/10 text-[10px] text-purple-500">
-                <Brain className="h-2.5 w-2.5" />{COMPLEXITY_LABEL["deep"]}
+              <Badge variant="outline" className={cn("h-5 gap-1 border-purple-500/40 bg-purple-500/10 text-[10px] text-purple-500", dense && "h-4 gap-0.5 px-1 text-[9px]")}>
+                <Brain className={cn("h-2.5 w-2.5", dense && "h-2 w-2")} />{COMPLEXITY_LABEL["deep"]}
               </Badge>
             ) : (
-              <Badge variant="outline" className="h-5 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary">
-                <Zap className="h-2.5 w-2.5" />{COMPLEXITY_LABEL["quick"]}
+              <Badge variant="outline" className={cn("h-5 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary", dense && "h-4 gap-0.5 px-1 text-[9px]")}>
+                <Zap className={cn("h-2.5 w-2.5", dense && "h-2 w-2")} />{COMPLEXITY_LABEL["quick"]}
               </Badge>
             )}
-            {task.date && <span className="text-muted-foreground">{format(new Date(task.date), "d MMM", { locale: es })}</span>}
+            {task.date && <span className={cn("text-muted-foreground", dense && "text-[9px]")}>{format(new Date(task.date), "d MMM", { locale: es })}</span>}
             {task.recurrence && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="h-5 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary">
-                    <Repeat className="h-2.5 w-2.5" />
+                  <Badge variant="outline" className={cn("h-5 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary", dense && "h-4 gap-0.5 px-1 text-[9px]")}>
+                    <Repeat className={cn("h-2.5 w-2.5", dense && "h-2 w-2")} />
                     {describeRecurrence(task.recurrence)}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>Tarea recurrente</TooltipContent>
               </Tooltip>
             )}
-            {task.inbox && <Badge variant="secondary" className="h-5">Inbox</Badge>}
+            {task.inbox && <Badge variant="secondary" className={cn("h-5", dense && "h-4 px-1 text-[9px]")}>Inbox</Badge>}
             {milestone && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="h-5 border-amber-400/40 bg-amber-400/10 text-[10px] text-amber-300">
-                    <Award className="mr-1 h-2.5 w-2.5" />
+                  <Badge variant="outline" className={cn("h-5 border-amber-400/40 bg-amber-400/10 text-[10px] text-amber-300", dense && "h-4 px-1 text-[9px]")}>
+                    <Award className={cn("mr-1 h-2.5 w-2.5", dense && "h-2 w-2")} />
                     {milestone.title}
                   </Badge>
                 </TooltipTrigger>
