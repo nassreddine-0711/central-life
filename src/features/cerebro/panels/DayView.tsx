@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { addDays, format, isSameDay, isToday, subDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Plus, Target, X, ListChecks } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Target, X, ListChecks, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,10 +14,13 @@ import { Empty, TaskList } from "../TaskComponents";
 import { DayPart, DAY_PART_LABEL, DAY_PART_ORDER } from "../types";
 
 /* ============================================================
-   Vista diaria: un espacio para organizar el día con un cuadro de
-   texto libre por cada hora (sin límite de texto, con puntos que se
-   pueden marcar como hechos), más objetivos del día, las tareas de
-   ese día y hábitos/actividades a marcar.
+   Vista diaria: un único cuadro con el horario del día, dividido en
+   franjas horarias que el propio usuario define (cada "párrafo" tiene
+   su propia hora de inicio y fin). Las franjas van siempre en orden
+   cronológico de arriba a abajo y nunca pueden solaparse: los
+   selectores de hora solo ofrecen las horas que quedan libres según
+   las franjas vecinas. Además: objetivos del día, las tareas de ese
+   día y hábitos/actividades a marcar.
 ============================================================ */
 
 /* ---------- Tipos propios ---------- */
@@ -26,13 +29,14 @@ interface HourItem {
   text: string;
   done: boolean;
 }
-interface HourRange {
-  start: number;
-  end: number;
+interface TimeBlock {
+  id: string;
+  start: number; // hora de inicio (0-23)
+  end: number; // hora de fin (1-24)
+  items: HourItem[];
 }
 interface DailyPlanEntry {
-  hours: Partial<Record<number, HourItem[]>>;
-  hourRange?: HourRange;
+  blocks: TimeBlock[];
   goals: string[];
   habitChecks: string[];
 }
@@ -43,13 +47,13 @@ interface HabitItem {
   label: string;
 }
 
-const EMPTY_ENTRY: DailyPlanEntry = { hours: {}, goals: [], habitChecks: [] };
+const EMPTY_ENTRY: DailyPlanEntry = { blocks: [], goals: [], habitChecks: [] };
 const isDailyPlanEmpty = (v: DailyPlanState) => Object.keys(v ?? {}).length === 0;
 const isHabitsEmpty = (v: HabitItem[]) => (v ?? []).length === 0;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const dateKey = (d: Date) => format(d, "yyyy-MM-dd");
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const HOURS = Array.from({ length: 24 }, (_, i) => i); // 0..23
 const END_HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i + 1); // 1..24 (24 = hasta medianoche)
 const hourLabel = (h: number) => `${h.toString().padStart(2, "0")}:00`;
 
@@ -79,25 +83,52 @@ export function DayView() {
     setDailyPlan((prev) => ({ ...prev, [key]: { ...EMPTY_ENTRY, ...(prev[key] ?? {}), ...patch } }));
   };
 
-  /* ---------- Horario por horas: una lista de puntos marcables por hora ---------- */
-  const [drafts, setDrafts] = useState<Record<number, string>>({});
-  const itemsFor = (h: number) => entry.hours?.[h] ?? [];
-  const addItem = (h: number) => {
-    const text = (drafts[h] ?? "").trim();
+  /* ---------- Horario: franjas horarias con sus puntos marcables ---------- */
+  const blocks = entry.blocks;
+
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const itemsFor = (blockId: string) => blocks.find((b) => b.id === blockId)?.items ?? [];
+  const updateBlockItems = (blockId: string, items: HourItem[]) => {
+    patchEntry({ blocks: blocks.map((b) => (b.id === blockId ? { ...b, items } : b)) });
+  };
+  const addItem = (blockId: string) => {
+    const text = (drafts[blockId] ?? "").trim();
     if (!text) return;
     const item: HourItem = { id: uid(), text, done: false };
-    patchEntry({ hours: { ...entry.hours, [h]: [...itemsFor(h), item] } });
-    setDrafts((d) => ({ ...d, [h]: "" }));
+    updateBlockItems(blockId, [...itemsFor(blockId), item]);
+    setDrafts((d) => ({ ...d, [blockId]: "" }));
   };
-  const toggleItem = (h: number, id: string) => {
-    patchEntry({ hours: { ...entry.hours, [h]: itemsFor(h).map((it) => (it.id === id ? { ...it, done: !it.done } : it)) } });
+  const toggleItem = (blockId: string, id: string) => {
+    updateBlockItems(blockId, itemsFor(blockId).map((it) => (it.id === id ? { ...it, done: !it.done } : it)));
   };
-  const removeItem = (h: number, id: string) => {
-    patchEntry({ hours: { ...entry.hours, [h]: itemsFor(h).filter((it) => it.id !== id) } });
+  const removeItem = (blockId: string, id: string) => {
+    updateBlockItems(blockId, itemsFor(blockId).filter((it) => it.id !== id));
   };
-  const editItemText = (h: number, id: string, text: string) => {
-    patchEntry({ hours: { ...entry.hours, [h]: itemsFor(h).map((it) => (it.id === id ? { ...it, text } : it)) } });
+  const editItemText = (blockId: string, id: string, text: string) => {
+    updateBlockItems(blockId, itemsFor(blockId).map((it) => (it.id === id ? { ...it, text } : it)));
   };
+
+  // Límites de hora válidos para la franja de índice "index", según sus vecinas:
+  // así los selectores de "desde"/"hasta" nunca dejan solapar ni desordenar.
+  const boundsFor = (index: number) => ({
+    lower: index === 0 ? 0 : blocks[index - 1].end,
+    upper: index === blocks.length - 1 ? 24 : blocks[index + 1].start,
+  });
+
+  const setBlockStart = (id: string, start: number) => {
+    patchEntry({ blocks: blocks.map((b) => (b.id === id ? { ...b, start } : b)) });
+  };
+  const setBlockEnd = (id: string, end: number) => {
+    patchEntry({ blocks: blocks.map((b) => (b.id === id ? { ...b, end } : b)) });
+  };
+  const addBlock = () => {
+    const start = blocks.length ? blocks[blocks.length - 1].end : 0;
+    if (start >= 24) return;
+    const block: TimeBlock = { id: uid(), start, end: Math.min(start + 1, 24), items: [] };
+    patchEntry({ blocks: [...blocks, block] });
+  };
+  const removeBlock = (id: string) => patchEntry({ blocks: blocks.filter((b) => b.id !== id) });
+  const dayFull = blocks.length > 0 && blocks[blocks.length - 1].end >= 24;
 
   /* ---------- Objetivos del día ---------- */
   const [goalDraft, setGoalDraft] = useState("");
@@ -136,16 +167,10 @@ export function DayView() {
     return map;
   }, [dayTasks]);
 
-  // Rango de horas visibles para este día en concreto: cada día puede necesitar ver
-  // más o menos horas, así que se guarda por día, no fijo para todos.
-  const range = entry.hourRange ?? { start: 0, end: 24 };
-  const visibleHours = HOURS.filter((h) => h >= range.start && h < range.end);
-  const setRange = (patch: Partial<HourRange>) => patchEntry({ hourRange: { ...range, ...patch } });
-
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-      {/* ---------- IZQUIERDA: horario del día, por horas ---------- */}
-      <div className="min-w-0 rounded-2xl border bg-card/50 p-4 shadow-sm backdrop-blur-sm">
+      {/* ---------- IZQUIERDA: horario del día, en un único cuadro con franjas ---------- */}
+      <div className="min-w-0 border-2 border-foreground/30 bg-card/50 p-4 shadow-sm backdrop-blur-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelected((d) => subDays(d, 1))}>
@@ -165,72 +190,96 @@ export function DayView() {
           </h3>
         </div>
 
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>Horas visibles:</span>
-          <Select value={String(range.start)} onValueChange={(v) => setRange({ start: Number(v) })}>
-            <SelectTrigger className="h-7 w-[84px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {HOURS.map((h) => <SelectItem key={h} value={String(h)}>{hourLabel(h)}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <span>–</span>
-          <Select value={String(range.end)} onValueChange={(v) => setRange({ end: Number(v) })}>
-            <SelectTrigger className="h-7 w-[84px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {END_HOUR_OPTIONS.map((h) => <SelectItem key={h} value={String(h)}>{`${h.toString().padStart(2, "0")}:00`}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          {visibleHours.map((h) => {
-            const items = itemsFor(h);
-            return (
-              <div key={h} className="flex items-start gap-3 rounded-xl border-2 border-foreground/30 bg-background/40 p-2.5">
-                <span className="w-11 shrink-0 pt-1 font-mono text-xs text-muted-foreground">{hourLabel(h)}</span>
-                <div className="min-w-0 flex-1 space-y-1">
-                  {items.map((item) => (
-                    <div key={item.id} className="group flex items-start gap-2">
-                      <Checkbox
-                        className="mt-1.5 shrink-0"
-                        checked={item.done}
-                        onCheckedChange={() => toggleItem(h, item.id)}
+        {blocks.length === 0 ? (
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            Sin franjas horarias todavía. Añade la primera para empezar a organizar el día.
+          </p>
+        ) : (
+          <div className="divide-y-2 divide-foreground/30 border-t-2 border-foreground/30">
+            {blocks.map((block, index) => {
+              const { lower, upper } = boundsFor(index);
+              const startOptions = HOURS.filter((h) => h >= lower && h < block.end);
+              const endOptions = END_HOUR_OPTIONS.filter((h) => h > block.start && h <= upper);
+              const items = itemsFor(block.id);
+              return (
+                <div key={block.id} className="py-2.5">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Select value={String(block.start)} onValueChange={(v) => setBlockStart(block.id, Number(v))}>
+                      <SelectTrigger className="h-7 w-[84px] font-mono text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {startOptions.map((h) => <SelectItem key={h} value={String(h)}>{hourLabel(h)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground">–</span>
+                    <Select value={String(block.end)} onValueChange={(v) => setBlockEnd(block.id, Number(v))}>
+                      <SelectTrigger className="h-7 w-[84px] font-mono text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {endOptions.map((h) => <SelectItem key={h} value={String(h)}>{hourLabel(h)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="ml-auto h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeBlock(block.id)}
+                      title="Eliminar esta franja"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    {items.map((item) => (
+                      <div key={item.id} className="group flex items-start gap-2">
+                        <Checkbox
+                          className="mt-1.5 shrink-0"
+                          checked={item.done}
+                          onCheckedChange={() => toggleItem(block.id, item.id)}
+                        />
+                        <Textarea
+                          value={item.text}
+                          onChange={(e) => editItemText(block.id, item.id, e.target.value)}
+                          onInput={(e) => autoGrow(e.currentTarget)}
+                          rows={1}
+                          className={cn(
+                            "min-h-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0.5 text-sm leading-snug shadow-none focus-visible:ring-0",
+                            item.done && "text-muted-foreground line-through",
+                          )}
+                        />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                          onClick={() => removeItem(block.id, item.id)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-4 shrink-0" />
+                      <Input
+                        value={drafts[block.id] ?? ""}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [block.id]: e.target.value }))}
+                        onKeyDown={(e) => e.key === "Enter" && addItem(block.id)}
+                        placeholder="Escribe algo para esta franja…"
+                        className="h-7 flex-1 border-0 bg-transparent px-0 text-sm shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
                       />
-                      <Textarea
-                        value={item.text}
-                        onChange={(e) => editItemText(h, item.id, e.target.value)}
-                        onInput={(e) => autoGrow(e.currentTarget)}
-                        rows={1}
-                        className={cn(
-                          "min-h-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0.5 text-sm leading-snug shadow-none focus-visible:ring-0",
-                          item.done && "text-muted-foreground line-through",
-                        )}
-                      />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                        onClick={() => removeItem(h, item.id)}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
                     </div>
-                  ))}
-                  <div className="flex items-center gap-2">
-                    <span className="h-4 w-4 shrink-0" />
-                    <Input
-                      value={drafts[h] ?? ""}
-                      onChange={(e) => setDrafts((d) => ({ ...d, [h]: e.target.value }))}
-                      onKeyDown={(e) => e.key === "Enter" && addItem(h)}
-                      placeholder="Escribe algo para esta hora…"
-                      className="h-7 flex-1 border-0 bg-transparent px-0 text-sm shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
-                    />
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
+
+        <Button
+          variant="outline"
+          className="mt-3 w-full rounded-none border-dashed"
+          disabled={dayFull}
+          onClick={addBlock}
+        >
+          <Plus className="h-4 w-4" /> {dayFull ? "Día completo" : "Añadir franja horaria"}
+        </Button>
       </div>
 
       {/* ---------- DERECHA: objetivos, tareas y hábitos ---------- */}
