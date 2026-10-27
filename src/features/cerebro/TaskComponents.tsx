@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { format, isSameDay, isToday, eachDayOfInterval, startOfDay, addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, addMonths, subMonths, addWeeks, subWeeks, isSameWeek } from "date-fns";
 import { es } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Flag, Trash2, Check, Award, Repeat, Pencil, Plus, Zap, Brain, X as XIcon, FolderKanban, StickyNote, CalendarClock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Flag, Trash2, Check, Award, Repeat, Pencil, Plus, Zap, Brain, X as XIcon, FolderKanban, StickyNote, CalendarClock, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { Task, CAT_COLORS, PRIO_COLORS, describeRecurrence, COMPLEXITY_LABEL, DayPart, DAY_PART_LABEL, DAY_PART_ORDER } from "./types";
 import { useKnowledge } from "@/features/knowledge/KnowledgeContext";
@@ -31,7 +32,7 @@ export function Empty({ msg }: { msg: string }) {
   return <p className="py-6 text-center text-sm text-muted-foreground">{msg}</p>;
 }
 
-export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }: { task: Task; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; compact?: boolean; fading?: boolean; }) {
+export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, dense, fading }: { task: Task; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; compact?: boolean; dense?: boolean; fading?: boolean; }) {
   const { milestones } = useKnowledge();
   const { openTaskDialog, projects, convertTaskToNote, apunteFolders, folderPath } = useCerebro();
   const [expanded, setExpanded] = useState(false);
@@ -49,14 +50,15 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
   return (
     <div className={cn(
       "group flex items-start gap-3 rounded-lg border bg-background/60 p-3 transition-all duration-300 hover:border-primary/40",
+      dense && "gap-1.5 rounded-md p-1.5",
       isEvent && "border-2 border-violet-400 bg-violet-400/15 hover:border-violet-400 dark:bg-violet-400/20",
       task.done && "opacity-60",
       fading && "opacity-0 -translate-x-3 pointer-events-none",
     )}>
-      <Checkbox className="mt-0.5" checked={task.done || fading} onCheckedChange={() => onToggle(task.id)} />
+      <Checkbox className={cn("mt-0.5", dense && "h-3.5 w-3.5")} checked={task.done || fading} onCheckedChange={() => onToggle(task.id)} />
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2">
-          {task.photo && !expanded && (
+          {task.photo && !expanded && !dense && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setLightbox(true); }}
@@ -70,17 +72,18 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
               />
             </button>
           )}
-          {isEvent && <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />}
+          {isEvent && <CalendarClock className={cn("mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500", dense && "h-3 w-3")} />}
           <p
             className={cn(
-              "flex-1 text-sm font-medium cursor-pointer transition-all",
+              "flex-1 font-medium cursor-pointer transition-all",
+              dense ? "text-xs" : "text-sm",
               expanded ? "whitespace-pre-wrap break-words" : "truncate",
               (task.done || fading) && "line-through"
             )}
             onClick={() => setExpanded(v => !v)}
             title={task.title}
           >{task.title}</p>
-          {project && (
+          {project && !dense && (
             <Badge variant="outline" className="ml-auto h-5 shrink-0 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary">
               <FolderKanban className="h-2.5 w-2.5" />
               <span className="max-w-[110px] truncate">{project.title}</span>
@@ -107,7 +110,7 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
             {task.description}
           </p>
         )}
-        {!expanded && hasExtras && task.description && (
+        {!expanded && !dense && hasExtras && task.description && (
           <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
             {task.description}
           </p>
@@ -154,7 +157,7 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
           </div>
         )}
       </div>
-      {task.inbox && (
+      {task.inbox && !dense && (
         <>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -200,14 +203,14 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
       )}
       <Button
         size="icon" variant="ghost"
-        className="h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
+        className={cn("h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100", dense && "h-5 w-5")}
         onClick={() => openTaskDialog({ editId: task.id })}
         title="Editar tarea"
       >
-        <Pencil className="h-3.5 w-3.5" />
+        <Pencil className={cn("h-3.5 w-3.5", dense && "h-3 w-3")} />
       </Button>
-      <Button size="icon" variant="ghost" className="h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100" onClick={() => onDelete(task.id)}>
-        <Trash2 className="h-3.5 w-3.5" />
+      <Button size="icon" variant="ghost" className={cn("h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100", dense && "h-5 w-5")} onClick={() => onDelete(task.id)}>
+        <Trash2 className={cn("h-3.5 w-3.5", dense && "h-3 w-3")} />
       </Button>
 
       {lightbox && task.photo && (
@@ -234,16 +237,74 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, fading }:
   );
 }
 
-export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate, columns = 1, compact }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; columns?: 1 | 2; compact?: boolean; }) {
+export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate, columns = 1, compact, dense }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; columns?: 1 | 2; compact?: boolean; dense?: boolean; }) {
   return (
     <div className={columns === 2 ? "grid grid-cols-1 gap-2 sm:grid-cols-2" : "space-y-2"}>
-      {tasks.map(t => <TaskRow key={t.id} task={t} compact={compact} fading={fadingIds?.has(t.id)} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />)}
+      {tasks.map(t => <TaskRow key={t.id} task={t} compact={compact} dense={dense} fading={fadingIds?.has(t.id)} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />)}
+    </div>
+  );
+}
+
+function WeekDayColumns({ days, tasks, fadingIds, onToggle, onDelete, onUpdate, onNewTask, dense, compact, minColWidth }: { days: Date[]; tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; onNewTask?: (date: Date) => void; dense?: boolean; compact?: boolean; minColWidth: number; }) {
+  return (
+    <div className="-mx-1 overflow-x-auto px-1 pb-1">
+      <div className="flex items-start gap-2">
+        {days.map(d => {
+          const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
+          const today = isToday(d);
+          return (
+            <div
+              key={d.toISOString()}
+              style={{ minWidth: minColWidth }}
+              className={cn(
+                "flex flex-1 flex-col rounded-xl border bg-card/80 shadow-sm backdrop-blur-sm",
+                dense ? "p-1.5" : "p-2.5",
+                today && "border-primary/60 ring-1 ring-primary/20 bg-primary/[0.03]"
+              )}
+            >
+              <div className={cn("flex items-center justify-between gap-1", dense ? "mb-1" : "mb-2")}>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {format(d, "EEE", { locale: es })}
+                  </p>
+                  <p className={cn("font-semibold capitalize", dense ? "text-xs" : "text-sm", today ? "text-primary" : "text-foreground")}>
+                    {format(d, "d MMM", { locale: es })}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {today && <Badge className="h-5 bg-primary/15 px-1.5 text-[10px] text-primary hover:bg-primary/15">Hoy</Badge>}
+                  {onNewTask && (
+                    <Button variant="ghost" size="icon" className={dense ? "h-5 w-5" : "h-6 w-6"} onClick={() => onNewTask(d)} title="Nueva tarea este día">
+                      <Plus className={dense ? "h-3 w-3" : "h-3.5 w-3.5"} />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1">
+                {list.length === 0 ? (
+                  onNewTask ? (
+                    <button
+                      type="button"
+                      onClick={() => onNewTask(d)}
+                      className={cn("w-full rounded-lg border border-dashed border-border text-center text-muted-foreground transition hover:border-primary/40 hover:text-primary", dense ? "py-3 text-[10px]" : "py-5 text-xs")}
+                    >
+                      {dense ? "Sin tareas" : "Sin tareas. Toca para añadir."}
+                    </button>
+                  ) : <p className={cn("text-center text-muted-foreground", dense ? "py-3 text-[10px]" : "py-5 text-xs")}>Sin tareas.</p>
+                ) : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} compact={compact} dense={dense} />}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNewTask }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; onNewTask?: (date: Date) => void; }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [fullscreen, setFullscreen] = useState(false);
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
   const isCurrentWeek = isSameWeek(weekStart, new Date(), { weekStartsOn: 1 });
@@ -270,58 +331,43 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNew
           )}
         </div>
         <h3 className="text-sm font-semibold capitalize text-foreground">{rangeLabel}</h3>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setFullscreen(true)} title="Ver semana en pantalla completa">
+          <Maximize2 className="h-3.5 w-3.5" /> Ampliar
+        </Button>
       </div>
 
-      <div className="-mx-1 overflow-x-auto px-1 pb-1">
-        <div className="flex items-start gap-2">
-          {days.map(d => {
-            const list = tasks.filter(t => !t.done && t.date && isSameDay(new Date(t.date), d));
-            const today = isToday(d);
-            return (
-              <div
-                key={d.toISOString()}
-                className={cn(
-                  "flex min-w-[360px] flex-1 flex-col rounded-xl border bg-card/80 p-2.5 shadow-sm backdrop-blur-sm",
-                  today && "border-primary/60 ring-1 ring-primary/20 bg-primary/[0.03]"
-                )}
-              >
-                <div className="mb-2 flex items-center justify-between gap-1">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {format(d, "EEE", { locale: es })}
-                    </p>
-                    <p className={cn("text-sm font-semibold capitalize", today ? "text-primary" : "text-foreground")}>
-                      {format(d, "d MMM", { locale: es })}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {today && <Badge className="h-5 bg-primary/15 px-1.5 text-[10px] text-primary hover:bg-primary/15">Hoy</Badge>}
-                    {onNewTask && (
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onNewTask(d)} title="Nueva tarea este día">
-                        <Plus className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
+      <WeekDayColumns
+        days={days}
+        tasks={tasks}
+        fadingIds={fadingIds}
+        onToggle={onToggle}
+        onDelete={onDelete}
+        onUpdate={onUpdate}
+        onNewTask={onNewTask}
+        dense
+        compact
+        minColWidth={150}
+      />
 
-                <div className="flex-1">
-                  {list.length === 0 ? (
-                    onNewTask ? (
-                      <button
-                        type="button"
-                        onClick={() => onNewTask(d)}
-                        className="w-full rounded-lg border border-dashed border-border py-5 text-center text-xs text-muted-foreground transition hover:border-primary/40 hover:text-primary"
-                      >
-                        Sin tareas. Toca para añadir.
-                      </button>
-                    ) : <p className="py-5 text-center text-xs text-muted-foreground">Sin tareas.</p>
-                  ) : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} compact />}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <Dialog open={fullscreen} onOpenChange={setFullscreen}>
+        <DialogContent className="flex h-[95vh] w-[98vw] max-w-none flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="capitalize">{rangeLabel}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto">
+            <WeekDayColumns
+              days={days}
+              tasks={tasks}
+              fadingIds={fadingIds}
+              onToggle={onToggle}
+              onDelete={onDelete}
+              onUpdate={onUpdate}
+              onNewTask={onNewTask}
+              minColWidth={300}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
