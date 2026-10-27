@@ -32,10 +32,10 @@ export function Empty({ msg }: { msg: string }) {
   return <p className="py-6 text-center text-sm text-muted-foreground">{msg}</p>;
 }
 
-export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, dense, fading }: { task: Task; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; compact?: boolean; dense?: boolean; fading?: boolean; }) {
+export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, dense, defaultExpanded, fading }: { task: Task; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; compact?: boolean; dense?: boolean; defaultExpanded?: boolean; fading?: boolean; }) {
   const { milestones } = useKnowledge();
   const { openTaskDialog, projects, convertTaskToNote, apunteFolders, folderPath } = useCerebro();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(!!defaultExpanded);
   const [lightbox, setLightbox] = useState(false);
   const [noteFolderOpen, setNoteFolderOpen] = useState(false);
   const [noteFolder, setNoteFolder] = useState<string>("__root");
@@ -83,7 +83,7 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, dense, fa
             onClick={() => setExpanded(v => !v)}
             title={task.title}
           >{task.title}</p>
-          {project && !dense && (
+          {project && (
             <Badge variant="outline" className="ml-auto h-5 shrink-0 gap-1 border-primary/30 bg-primary/10 text-[10px] text-primary">
               <FolderKanban className="h-2.5 w-2.5" />
               <span className="max-w-[110px] truncate">{project.title}</span>
@@ -237,15 +237,15 @@ export function TaskRow({ task, onToggle, onDelete, onUpdate, compact, dense, fa
   );
 }
 
-export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate, columns = 1, compact, dense }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; columns?: 1 | 2; compact?: boolean; dense?: boolean; }) {
+export function TaskList({ tasks, fadingIds, onToggle, onDelete, onUpdate, columns = 1, compact, dense, defaultExpanded }: { tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; columns?: 1 | 2; compact?: boolean; dense?: boolean; defaultExpanded?: boolean; }) {
   return (
     <div className={columns === 2 ? "grid grid-cols-1 gap-2 sm:grid-cols-2" : "space-y-2"}>
-      {tasks.map(t => <TaskRow key={t.id} task={t} compact={compact} dense={dense} fading={fadingIds?.has(t.id)} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />)}
+      {tasks.map(t => <TaskRow key={t.id} task={t} compact={compact} dense={dense} defaultExpanded={defaultExpanded} fading={fadingIds?.has(t.id)} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} />)}
     </div>
   );
 }
 
-function WeekDayColumns({ days, tasks, fadingIds, onToggle, onDelete, onUpdate, onNewTask, dense, compact, minColWidth }: { days: Date[]; tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; onNewTask?: (date: Date) => void; dense?: boolean; compact?: boolean; minColWidth: number; }) {
+function WeekDayColumns({ days, tasks, fadingIds, onToggle, onDelete, onUpdate, onNewTask, dense, compact, defaultExpanded, minColWidth }: { days: Date[]; tasks: Task[]; fadingIds?: Set<string>; onToggle: (id: string) => void; onDelete: (id: string) => void; onUpdate: (id: string, p: Partial<Task>) => void; onNewTask?: (date: Date) => void; dense?: boolean; compact?: boolean; defaultExpanded?: boolean; minColWidth: number; }) {
   return (
     <div className="-mx-1 overflow-x-auto px-1 pb-1">
       <div className="flex items-start gap-2">
@@ -292,7 +292,7 @@ function WeekDayColumns({ days, tasks, fadingIds, onToggle, onDelete, onUpdate, 
                       {dense ? "Sin tareas" : "Sin tareas. Toca para añadir."}
                     </button>
                   ) : <p className={cn("text-center text-muted-foreground", dense ? "py-3 text-[10px]" : "py-5 text-xs")}>Sin tareas.</p>
-                ) : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} compact={compact} dense={dense} />}
+                ) : <TaskList tasks={list} fadingIds={fadingIds} onToggle={onToggle} onDelete={onDelete} onUpdate={onUpdate} compact={compact} dense={dense} defaultExpanded={defaultExpanded} />}
               </div>
             </div>
           );
@@ -345,7 +345,7 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNew
         onUpdate={onUpdate}
         onNewTask={onNewTask}
         dense
-        compact
+        defaultExpanded
         minColWidth={150}
       />
 
@@ -363,6 +363,7 @@ export function WeekView({ tasks, fadingIds, onToggle, onDelete, onUpdate, onNew
               onDelete={onDelete}
               onUpdate={onUpdate}
               onNewTask={onNewTask}
+              defaultExpanded
               minColWidth={300}
             />
           </div>
